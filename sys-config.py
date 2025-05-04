@@ -28,6 +28,7 @@ def cmdr(cmd: list, stdscr=None, label: str = None) -> str:
         if stdscr is not None:
             stdscr.clear()
             stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
+            draw_border(stdscr)
         output = "DRYRUN: " + " ".join(cmd)
         if stdscr is not None:
             stdscr.addstr(3, 2, output)
@@ -70,7 +71,10 @@ def cmdr(cmd: list, stdscr=None, label: str = None) -> str:
                 output.append(line)
             proc.wait()
         except KeyboardInterrupt:
-            proc.kill()
+            try:
+                proc.kill()
+            except:
+                pass
             return -1
     returncode = proc.returncode
     return "".join(output)
@@ -289,6 +293,81 @@ END {
     runner(cmd, False, stdscr, "Check Packages Integrity")
 
 
+def install_recommends(stdscr=None) -> None:
+    cmd = [
+        "sh",
+        "-c",
+        "pacman -Sy && pacman -S --noconfirm"
+        + " webcord-bin"
+        + " ayugram-desktop"
+        + " thunderbird"
+        + " gnome-disk-utility"
+        + " mpv"
+        + " libreoffice-fresh"
+        + " timeshift",
+    ]
+    elevate = True
+    runner(cmd, True, stdscr, "Install Recommended Packages")
+
+
+def install_docker(stdscr=None) -> None:
+    cmd = [
+        "sh",
+        "-c",
+        "pacman -Sy && pacman -S --noconfirm"
+        + " docker"
+        + " docker-buildx"
+        + " docker-compose"
+        + " docker-compose"
+        + " pigz"
+        + " && systemctl disable --now systemd-networkd-wait-online"
+        + " && systemctl mask systemd-networkd-wait-online"
+        + " && systemctl enable --now docker",
+    ]
+    elevate = True
+    runner(cmd, True, stdscr, "Install Docker")
+
+
+def install_steam_any(stdscr=None) -> None:
+    cmd = [
+        "sh",
+        "-c",
+        "pacman -Sy && pacman -S --noconfirm steam steam-libs-any",
+    ]
+    elevate = True
+    runner(cmd, True, stdscr, "Install Steam (Any)")
+
+
+def install_steam_panfork(stdscr=None) -> None:
+    cmd = [
+        "sh",
+        "-c",
+        "pacman -Sy && pacman -S --noconfirm steam steam-libs-rk3588",
+    ]
+    elevate = True
+    runner(cmd, True, stdscr, "Install Steam (RK3588, Panfork graphics)")
+
+
+def unlock_pacman(stdscr=None) -> None:
+    cmd = [
+        "bash",
+        "-c",
+        '[ -f /var/lib/pacman/db.lck ] && ! pgrep -x pacman >/dev/null && { sudo rm -f /var/lib/pacman/db.lck && echo "Pacman DB lock removed."; } || echo "No action needed."',
+    ]
+    elevate = True
+    runner(cmd, True, stdscr, "Unlock Pacman Database")
+
+
+def autoremove(stdscr=None) -> None:
+    cmd = [
+        "bash",
+        "-c",
+        "while pacman -Qdtq >/dev/null 2>&1; do sudo pacman -Rns --noconfirm $(pacman -Qdtq); done",
+    ]
+    elevate = True
+    runner(cmd, True, stdscr, "Remove Unused Packages")
+
+
 # -------------- TUI LOGIC --------------
 
 
@@ -396,7 +475,7 @@ def sys_health_menu(stdscr):
     options = [
         "Perform Filesystem Maintenance",
         "Check & Repair Filesystem",
-        "Expand fileystem",
+        "Expand Fileystem",
         "Check Packages Integrity",
         "Main Menu",
     ]
@@ -412,7 +491,7 @@ def sys_health_menu(stdscr):
             filesystem_maint(stdscr)
         if options[selection] == "Check & Repair Filesystem":
             filesystem_check(stdscr)
-        if options[selection] == "Expand fileystem":
+        if options[selection] == "Expand Fileystem":
             filesystem_resize(stdscr)
         if options[selection] == "Check Packages Integrity":
             pacman_integrity(stdscr)
@@ -432,14 +511,52 @@ def sys_tweaks_menu(stdscr) -> None:
             hack_pipewire(stdscr)
 
 
+def packages_menu(stdscr) -> None:
+    options = [
+        "Install Recommended Desktop Packages",
+        "Install Docker",
+        "Install Steam (Any)",
+        "Install Steam (Panfork graphics)",
+        "Install BredOS Development Packages",
+        "Unlock Pacman Database",
+        "Autoremove Unused packages",
+        "Check Packages Integrity",
+        "Main Menu",
+    ]
+
+    while True:
+        selection = draw_menu(stdscr, "Packages", options)
+        if selection is None or options[selection] == "Main Menu":
+            return
+
+        stdscr.clear()
+        stdscr.refresh()
+        if options[selection] == "Install Recommended Desktop Packages":
+            install_recommends(stdscr)
+        if options[selection] == "Install Docker":
+            install_docker(stdscr)
+        if options[selection] == "Install Steam (Any)":
+            install_steam_any(stdscr)
+        if options[selection] == "Install Steam (Panfork graphics)":
+            install_steam_panfork(stdscr)
+        if options[selection] == "Install BredOS Development Packages":
+            install_development(stdscr)
+        if options[selection] == "Unlock Pacman Database":
+            unlock_pacman(stdscr)
+        if options[selection] == "Autoremove Unused packages":
+            autoremove(stdscr)
+        if options[selection] == "Check Packages Integrity":
+            pacman_integrity(stdscr)
+
+
 def main_menu(stdscr):
     curses.start_color()
     curses.use_default_colors()
-    curses.init_pair(1, 166, -1)  # Background
+    curses.init_pair(1, 166, -1)  # Color
     stdscr.bkgd(" ", curses.color_pair(1))
     stdscr.clear()
 
-    options = ["System Health", "System Tweaks", "Exit"]
+    options = ["System Health", "System Tweaks", "Packages", "Exit"]
 
     while True:
         selection = draw_menu(stdscr, APP_NAME, options)
@@ -450,6 +567,8 @@ def main_menu(stdscr):
             sys_tweaks_menu(stdscr)
         if options[selection] == "System Health":
             sys_health_menu(stdscr)
+        if options[selection] == "Packages":
+            packages_menu(stdscr)
 
 
 def tui():
@@ -469,11 +588,27 @@ def dp(args):
             filesystem_check()
         elif args.action == "expand":
             filesystem_resize()
-        elif args.action == "packages":
-            pacman_integrity()
     elif cmd == "tweaks":
         if args.target == "pipewire":
             hack_pipewire()
+    elif cmd == "packages":
+        if args.action == "install":
+            if args.target == "recommends":
+                install_recommends()
+            elif args.target == "docker":
+                install_docker()
+            elif args.target == "steam-any":
+                install_steam_any()
+            elif args.target == "steam-panfork":
+                install_steam_panfork()
+            elif args.target == "development":
+                install_development()
+        elif args.action == "integrity":
+            pacman_integrity()
+        elif args.action == "unlock":
+            unlock_pacman()
+        elif args.action == "autoremove":
+            autoremove()
     else:
         print("Unknown command")
 
@@ -505,12 +640,29 @@ def main():
     fs_sub.add_parser("maintenance")
     fs_sub.add_parser("check")
     fs_sub.add_parser("expand")
-    fs_sub.add_parser("packages")
 
     # Hacks
     hack_parser = subparsers.add_parser("tweaks")
     hack_sub = hack_parser.add_subparsers(dest="target")
     pipewire_parser = hack_sub.add_parser("pipewire")
+
+    # Packages
+    pac_parser = subparsers.add_parser("packages")
+    pac_sub = pac_parser.add_subparsers(dest="action", required=True)
+
+    # install sub-subcommands
+    install_parser = pac_sub.add_parser("install")
+    install_sub = install_parser.add_subparsers(dest="target", required=True)
+    install_sub.add_parser("recommends")
+    install_sub.add_parser("docker")
+    install_sub.add_parser("steam")
+    install_sub.add_parser("development")
+    install_sub.add_parser("unlock")
+
+    # Packages other actions
+    pac_sub.add_parser("integrity")
+    pac_sub.add_parser("unlock")
+    pac_sub.add_parser("autoremove")
 
     # Dry-Run
     pipewire_parser.add_argument("--dry-run", "-d", action="store_true")

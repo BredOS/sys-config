@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=BredOS Config
+Comment=Launch bredos-config in terminal
+Exec=bredos-config
+Terminal=true
+Type=Application
+Categories=Utility;
+Icon=bredsq

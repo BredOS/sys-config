@@ -348,6 +348,29 @@ def install_steam_panfork(stdscr=None) -> None:
     runner(cmd, True, stdscr, "Install Steam (RK3588, Panfork graphics)")
 
 
+def install_development(stdscr=None) -> None:
+    cmd = [
+        "sh",
+        "-c",
+        "pacman -Sy && pacman -S --noconfirm"
+        + " python-prettytable"
+        + " grub"
+        + " parted"
+        + " gptfdisk"
+        + " edk2-rk3588-devel"
+        + " dtc"
+        + " xmlto"
+        + " docbook-xsl"
+        + " kmod"
+        + " bc"
+        + " uboot-tools"
+        + " vboot-utils"
+        + " bredos-tools",
+    ]
+    elevate = True
+    runner(cmd, True, stdscr, "Install BredOS Development Packages")
+
+
 def unlock_pacman(stdscr=None) -> None:
     cmd = [
         "bash",

@@ -1,12 +1,13 @@
 # Maintainer: Bill Sideris <bill88t@bredos.org>
 
 pkgname=bredos-sysconfig
-pkgver=1.1.1
+pkgver=1.2.0
 pkgrel=1
 pkgdesc='BredOS System Configurator and Management utility'
 arch=(any)
 url=https://github.com/BredOS/sys-config
 license=('GPL3')
+provides=("bredos-config")
 
 depends=(python)
 

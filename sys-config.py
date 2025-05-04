@@ -280,9 +280,9 @@ def pacman_integrity(stdscr=None) -> None:
         "-c",
         r"""echo "Running.." && pacman -Qkk 2>/dev/null | awk '
 /:.*(missing|Size mismatch|MODIFIED)/ &&
-$0 !~ /\.conf|\.pac(new|save|orig)/ &&
+$0 !~ /\.json|\.conf|\.pac(new|save|orig)/ &&
 $0 !~ /\/\.?(bashrc|bash_profile|zshrc|profile)$/ &&
-$0 !~ /^.*\/etc\/(shells|subgid|subuid|environment|sudoers|passwd|shadow|group|gshadow|fstab|mtab|issue|default\/|skel\/|locale\.gen|ssh\/)/ &&
+$0 !~ /^.*\/etc\/(shells|subgid|subuid|environment|sudoers|passwd|shadow|group|gshadow|fstab|mtab|issue|default\/|skel\/|locale\.gen|ssh\/|libvirt\/)/ &&
 $0 !~ /\/usr\/share\/(doc|man)|\.cache/ {
     pkg = gensub(/:.*$/, "", 1, $0);
     issues[pkg]++;

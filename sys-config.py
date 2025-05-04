@@ -265,6 +265,15 @@ WantedBy=default.target
     )
 
 
+def hack_wol(stdscr=None) -> None:
+    cmd = [
+        "bash",
+        "-c",
+        'pacman -Qi bredos-wol &>/dev/null && echo "Removing.." && pacman -R --noconfirm bredos-wol || { echo "Installing.."; pacman -Sy; pacman -S --noconfirm bredos-wol; }',
+    ]
+    runner(cmd, True, stdscr, "Wake On Lan")
+
+
 def pacman_integrity(stdscr=None) -> None:
     cmd = [
         "sh",
@@ -304,7 +313,10 @@ def install_recommends(stdscr=None) -> None:
         + " gnome-disk-utility"
         + " mpv"
         + " libreoffice-fresh"
-        + " timeshift",
+        + " timeshift"
+        + " proton-run"
+        + " evince"
+        + " loupe",
     ]
     elevate = True
     runner(cmd, True, stdscr, "Install Recommended Packages")
@@ -521,7 +533,7 @@ def sys_health_menu(stdscr):
 
 
 def sys_tweaks_menu(stdscr) -> None:
-    options = ["Pipewire CPU fix", "Main Menu"]
+    options = ["Pipewire CPU fix", "Wake On Lan", "Main Menu"]
 
     while True:
         selection = draw_menu(stdscr, "System Tweaks", options)
@@ -532,6 +544,8 @@ def sys_tweaks_menu(stdscr) -> None:
         stdscr.refresh()
         if options[selection] == "Pipewire CPU fix":
             hack_pipewire(stdscr)
+        if options[selection] == "Wake On Lan":
+            hack_wol(stdscr)
 
 
 def packages_menu(stdscr) -> None:
@@ -614,6 +628,8 @@ def dp(args):
     elif cmd == "tweaks":
         if args.target == "pipewire":
             hack_pipewire()
+        if args.target == "wol":
+            hack_wol()
     elif cmd == "packages":
         if args.action == "install":
             if args.target == "recommends":
@@ -668,6 +684,7 @@ def main():
     hack_parser = subparsers.add_parser("tweaks")
     hack_sub = hack_parser.add_subparsers(dest="target")
     pipewire_parser = hack_sub.add_parser("pipewire")
+    pipewire_parser = hack_sub.add_parser("wol")
 
     # Packages
     pac_parser = subparsers.add_parser("packages")

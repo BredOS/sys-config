@@ -297,7 +297,7 @@ def install_recommends(stdscr=None) -> None:
     cmd = [
         "sh",
         "-c",
-        "pacman -Sy && pacman -S --noconfirm"
+        "pacman -Sy && pacman -S --noconfirm --needed"
         + " webcord-bin"
         + " ayugram-desktop"
         + " thunderbird"
@@ -314,7 +314,7 @@ def install_docker(stdscr=None) -> None:
     cmd = [
         "sh",
         "-c",
-        "pacman -Sy && pacman -S --noconfirm"
+        "pacman -Sy && pacman -S --noconfirm --needed"
         + " docker"
         + " docker-buildx"
         + " docker-compose"
@@ -332,7 +332,7 @@ def install_steam_any(stdscr=None) -> None:
     cmd = [
         "sh",
         "-c",
-        "pacman -Sy && pacman -S --noconfirm steam steam-libs-any",
+        "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-any",
     ]
     elevate = True
     runner(cmd, True, stdscr, "Install Steam (Any)")
@@ -342,7 +342,7 @@ def install_steam_panfork(stdscr=None) -> None:
     cmd = [
         "sh",
         "-c",
-        "pacman -Sy && pacman -S --noconfirm steam steam-libs-rk3588",
+        "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-rk3588",
     ]
     elevate = True
     runner(cmd, True, stdscr, "Install Steam (RK3588, Panfork graphics)")
@@ -352,7 +352,7 @@ def install_development(stdscr=None) -> None:
     cmd = [
         "sh",
         "-c",
-        "pacman -Sy && pacman -S --noconfirm"
+        "pacman -Sy && pacman -S --noconfirm --needed"
         + " python-prettytable"
         + " grub"
         + " parted"

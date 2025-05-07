@@ -412,7 +412,7 @@ def draw_border(stdscr) -> None:
     stdscr.attroff(curses.color_pair(1))
 
 
-def wait_clear(stdscr) -> None:
+def wait_clear(stdscr, timeout: float = 0.2) -> None:
     stdscr.nodelay(True)
     keys_held = True
 
@@ -421,7 +421,7 @@ def wait_clear(stdscr) -> None:
             keys_held = False
             start_time = time.time()
 
-            while time.time() - start_time < 0.2:
+            while time.time() - start_time < timeout:
                 if stdscr.getch() != -1:
                     keys_held = True
                     break
@@ -501,6 +501,7 @@ def draw_menu(stdscr, title: str, options: list):
                 return current_row
             elif key in (ord("q"), 27):  # ESC or 'q'
                 return None
+            wait_clear(stdscr, 0.05)
         except KeyboardInterrupt:
             wait_clear(stdscr)
             stdscr.clear()

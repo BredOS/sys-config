@@ -9,6 +9,7 @@ import textwrap
 import subprocess
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 APP_NAME = "BredOS Configurator"
 LOG_FILE = None
@@ -156,15 +157,97 @@ def message(
         y += 1
 
     if not prompt:
+        stdscr.refresh()
         return
 
     stdscr.attron(curses.A_REVERSE)
-    stdscr.addstr(maxy - 2, 2, "Press Enter to return")
+    stdscr.addstr(maxy - 2, 2, " Press Enter to continue ")
     stdscr.attroff(curses.A_REVERSE)
     stdscr.refresh()
     while stdscr.getch() != ord("\n"):
         pass
     wait_clear(stdscr)
+
+
+def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
+    if stdscr is None:
+        for line in text:
+            print(line)
+
+        while True:
+            try:
+                dat = input("(Y/N)> ")
+                if dat in ["y", "Y"]:
+                    return True
+                elif dat in ["n", "N"]:
+                    return False
+            except KeyboardInterrupt:
+                pass
+            except EOFError:
+                pass
+
+        return False  # Magical fallthrough
+
+    maxy, _ = stdscr.getmaxyx()
+    stdscr.clear()
+    draw_border(stdscr)
+    stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
+    y = 3
+    for line in text:
+        stdscr.addstr(y, 2, line)
+        y += 1
+
+    sel = None
+    stdscr.attron(curses.A_REVERSE)
+    stdscr.addstr(
+        maxy - 2,
+        2,
+        " Confirm (Y/N): ",
+    )
+    stdscr.attroff(curses.A_REVERSE)
+    stdscr.refresh()
+
+    while True: # Way too many ways to do this, cba to do it fancy
+        dat = stdscr.getch()
+        if dat == ord("\n"):
+            if sel is not None:
+                break
+        elif (sel is not True) and dat in [ord("y"), ord("Y")]:
+            sel = True
+            stdscr.attron(curses.A_REVERSE)
+            stdscr.addstr(
+                maxy - 2,
+                2,
+                " Confirm (Y/N): Y | Press enter to continue ",
+            )
+            stdscr.attroff(curses.A_REVERSE)
+            stdscr.refresh()
+        elif (sel is not False) and dat in [ord("n"), ord("N")]:
+            sel = False
+            stdscr.attron(curses.A_REVERSE)
+            stdscr.addstr(
+                maxy - 2,
+                2,
+                " Confirm (Y/N): N | Press enter to continue ",
+            )
+            stdscr.attroff(curses.A_REVERSE)
+            stdscr.refresh()
+        elif sel is not None:
+            sel = None
+
+            stdscr.attron(curses.A_REVERSE)
+            clear_line(stdscr, maxy - 2)
+            stdscr.addstr(
+                maxy - 2,
+                2,
+                " Confirm (Y/N): ",
+            )
+            stdscr.attroff(curses.A_REVERSE)
+            stdscr.border()
+            stdscr.refresh()
+
+    wait_clear(stdscr)
+    return sel
 
 
 def runner(
@@ -205,6 +288,114 @@ def filesystem_resize(stdscr=None) -> None:
         'systemctl enable resizefs && echo "The filesystem will be resized on next reboot!"',
     ]
     runner(cmd, True, stdscr, "Filesystem Resize")
+
+
+def extract_dtb_info(dtb_path: Path) -> dict | None:
+    try:
+        output = subprocess.check_output(
+            ["dtc", "-I", "dtb", "-O", "dts", str(dtb_path)],
+            stderr=subprocess.DEVNULL,
+            text=True
+        )
+    except subprocess.CalledProcessError:
+        return None
+
+    description = None
+    compatible = []
+
+    for line in output.splitlines():
+        line = line.strip()
+        if line.startswith("description =") and description is not None:
+            description = line.split("=", 1)[1].strip().strip('"').strip(";")
+        elif line.startswith("compatible ="):
+            compat_str = line.split("=", 1)[1].strip().strip(";")
+            compatible = [s.strip().strip('"') for s in compat_str.split(",")]
+
+    name = str(dtb_path)
+    name = name[name.rfind("/")+1:name.rfind(".")]
+
+    return {
+        "name": name,
+        "description": description,
+        "compatible": compatible,
+    }
+
+
+def dt_gencache() -> dict:
+    res = {"base": {}, "overlays": {}}
+    dtb_root = Path("/boot/dtbs")
+
+    base_files = list(dtb_root.rglob("*.dtb"))
+    overlay_files = list(dtb_root.rglob("*.dtbo"))
+
+    try:
+        with ThreadPoolExecutor() as executor:
+            future_to_path_base = {executor.submit(extract_dtb_info, path): path for path in base_files}
+            future_to_path_overlay = {executor.submit(extract_dtb_info, path): path for path in overlay_files}
+
+            for future in as_completed(future_to_path_base):
+                path = future_to_path_base[future]
+                result = future.result()
+                if result:
+                    res["base"][str(path)] = result
+
+            for future in as_completed(future_to_path_overlay):
+                path = future_to_path_overlay[future]
+                result = future.result()
+                if result:
+                    res["overlays"][str(path)] = result
+    except KeyboardInterrupt:
+        pass
+    except:
+        pass
+    return res
+
+
+def dt_manager(stdscr=None, cmd: list = []) -> None:
+    message(["Please wait.."], stdscr, "Generating Device Tree Caches", False)
+    dts = dt_gencache()
+    if not dts["base"]:
+        message(["No Device Trees were detected!"], stdscr, "Device Tree Manager", True)
+        return
+
+    if stdscr is None:
+        if not cmd:
+            print("No operations specified.\n\nUsage: list/base/overlay\n")
+        else:
+            if cmd[0] == "list":
+                print("Base Device Trees:\n")
+                maxnl = max(len(v["name"]) for v in dts["base"].values())
+                print("NAME" + ((maxnl - 4) * " ") + " | ")
+                for tree in dts["base"].keys():
+                    print(dts["base"][tree]["name"] + ((maxnl - len(dts["base"][tree]["name"])) * " ") + " | ")
+            elif cmd[0] == "base":
+                pass
+            elif cmd[0] == "overlay":
+                if len(cmd) > 1:
+                    if cmd[1] == "enable":
+                        pass
+                    elif cmd[1] == "disable":
+                        pass
+                    else:
+                        print("Invalid operation specified.\n\nUsage: enable/disable overlay.dtbo\n")
+                else:
+                    print("No operations specified.\n\nUsage: enable/disable overlay.dtbo\n")
+            else:
+                print("Invalid operation specified.\n\nUsage: list/base/overlay\n")
+        return
+
+    res = confirm(
+        [
+            "This command is only for advanced users!",
+            "",
+            "Only continue if you know EXACTLY what you're doing.",
+        ],
+        stdscr,
+        "Device Tree Management",
+    )
+
+    if not res:
+        return
 
 
 def hack_pipewire(stdscr=None) -> None:
@@ -513,6 +704,7 @@ def sys_health_menu(stdscr):
         "Check & Repair Filesystem",
         "Expand Fileystem",
         "Check Packages Integrity",
+        "Manage Device Trees",
         "Main Menu",
     ]
 
@@ -531,6 +723,8 @@ def sys_health_menu(stdscr):
             filesystem_resize(stdscr)
         if options[selection] == "Check Packages Integrity":
             pacman_integrity(stdscr)
+        if options[selection] == "Manage Device Trees":
+            dt_manager(stdscr)
 
 
 def sys_tweaks_menu(stdscr) -> None:
@@ -594,17 +788,17 @@ def main_menu(stdscr):
     stdscr.bkgd(" ", curses.color_pair(1))
     stdscr.clear()
 
-    options = ["System Health", "System Tweaks", "Packages", "Exit"]
+    options = ["System Upkeep", "System Tweaks", "Packages", "Exit"]
 
     while True:
         selection = draw_menu(stdscr, APP_NAME, options)
         if selection is None or options[selection] == "Exit":
             return
 
+        if options[selection] == "System Upkeep":
+            sys_health_menu(stdscr)
         if options[selection] == "System Tweaks":
             sys_tweaks_menu(stdscr)
-        if options[selection] == "System Health":
-            sys_health_menu(stdscr)
         if options[selection] == "Packages":
             packages_menu(stdscr)
 
@@ -619,13 +813,15 @@ def tui():
 def dp(args):
     cmd = args.command
 
-    if cmd == "health":
+    if cmd == "upkeep":
         if args.action == "maintenance":
             filesystem_maint()
         elif args.action == "check":
             filesystem_check()
         elif args.action == "expand":
             filesystem_resize()
+        elif args.action == "dt":
+            dt_manager(cmd=args.cmd)
     elif cmd == "tweaks":
         if args.target == "pipewire":
             hack_pipewire()
@@ -674,12 +870,16 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # Filesystem subcommands
-    fs_parser = subparsers.add_parser("health")
+    # Admin subcommands
+    fs_parser = subparsers.add_parser("upkeep")
     fs_sub = fs_parser.add_subparsers(dest="action")
     fs_sub.add_parser("maintenance")
     fs_sub.add_parser("check")
     fs_sub.add_parser("expand")
+
+    # Device tree subcommands
+    dt_parser = fs_sub.add_parser("dt")
+    dt_parser.add_argument("cmd", nargs=argparse.REMAINDER)
 
     # Hacks
     hack_parser = subparsers.add_parser("tweaks")

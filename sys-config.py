@@ -501,7 +501,7 @@ def draw_menu(stdscr, title: str, options: list):
                 return current_row
             elif key in (ord("q"), 27):  # ESC or 'q'
                 return None
-            wait_clear(stdscr, 0.05)
+            wait_clear(stdscr, 0.065)
         except KeyboardInterrupt:
             wait_clear(stdscr)
             stdscr.clear()

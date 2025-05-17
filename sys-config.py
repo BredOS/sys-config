@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import curses
+import hashlib
 import argparse
 import textwrap
 import subprocess
@@ -15,6 +16,11 @@ APP_NAME = "BredOS Configurator"
 LOG_FILE = None
 DRYRUN = False
 ROOT_MODE = False
+
+DTB_PATH = Path("/boot/dtbs")
+PROC_DT = Path("/proc/device-tree")
+
+dts_cache = {}
 
 # --------------- RUNNER ----------------
 
@@ -291,14 +297,7 @@ def filesystem_resize(stdscr=None) -> None:
 
 
 def extract_dtb_info(dtb_path: Path) -> dict | None:
-    try:
-        output = subprocess.check_output(
-            ["dtc", "-I", "dtb", "-O", "dts", str(dtb_path)],
-            stderr=subprocess.DEVNULL,
-            text=True
-        )
-    except subprocess.CalledProcessError:
-        return None
+    output = dtb_to_dts(dtb_path)
 
     description = None
     compatible = []
@@ -307,9 +306,9 @@ def extract_dtb_info(dtb_path: Path) -> dict | None:
         line = line.strip()
         if line.startswith("description =") and description is not None:
             description = line.split("=", 1)[1].strip().strip('"').strip(";")
-        elif line.startswith("compatible ="):
+        elif line.startswith("compatible =") and not compatible:
             compat_str = line.split("=", 1)[1].strip().strip(";")
-            compatible = [s.strip().strip('"') for s in compat_str.split(",")]
+            compatible = [compat_str.strip().strip('"')]
 
     name = str(dtb_path)
     name = name[name.rfind("/")+1:name.rfind(".")]
@@ -321,14 +320,114 @@ def extract_dtb_info(dtb_path: Path) -> dict | None:
     }
 
 
+def dtb_to_dts(dtb_path):
+    global dts_cache
+    if dtb_path in dts_cache:
+        return dts_cache[dtb_path]
+    try:
+        res = subprocess.check_output([
+            "dtc", "-I", "dtb", "-O", "dts", "-q", str(dtb_path)
+        ], stderr=subprocess.DEVNULL).decode()
+
+        dts_cache[dtb_path] = res
+        return res
+    except subprocess.CalledProcessError:
+        return None
+
+def fdt_hash_from_proc():
+    try:
+        return subprocess.check_output([
+            "dtc", "-I", "fs", "-O", "dts", "/proc/device-tree"
+        ], stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        return None
+
+
+def hash_str(data):
+    return hashlib.sha256(data.encode()).hexdigest()
+
+
+def identify_base_dtb():
+    live_dts = fdt_hash_from_proc()
+    if live_dts is None:
+        return None, "Failed to read live FDT"
+
+    live_hash = hash_str(live_dts.decode())
+
+    candidates = list(DTB_PATH.rglob("*.dtb"))
+    matches = []
+    for dtb in candidates:
+        dts = dtb_to_dts(dtb)
+        if dts is None:
+            continue
+        if hash_str(dts) == live_hash:
+            matches.append(dtb.relative_to(DTB_PATH))
+
+    if matches:
+        return matches[0], None
+    else:
+        return None, "No exact match found (overlays likely applied)"
+
+
+def diff_dts(base_dts, live_dts):
+    base_lines = set(base_dts.splitlines())
+    live_lines = set(live_dts.splitlines())
+    return list(live_lines - base_lines)
+
+
+def dt_process_candidate(dtb_path, live_hash):
+    dts = dtb_to_dts(dtb_path)
+    if dts is None:
+        return None
+    h = hash_str(dts)
+    return (dtb_path.relative_to(DTB_PATH), h, dts)
+
+def dt_detect_live() -> tuple:
+    live_dts = fdt_hash_from_proc()
+    if live_dts is None:
+        return None, "Could not read live FDT"
+
+    live_dts_str = live_dts.decode()
+    live_hash = hash_str(live_dts_str)
+    candidates = list(DTB_PATH.rglob("*.dtb"))
+
+    best_match = None
+    best_dts = None
+    overlay_diff = []
+    min_diff = float("inf")
+
+    with ThreadPoolExecutor() as executor:
+        futures = {executor.submit(dt_process_candidate, dtb, live_hash): dtb for dtb in candidates}
+
+        for future in as_completed(futures):
+            result = future.result()
+            if result is None:
+                continue
+            dtb_relpath, candidate_hash, candidate_dts = result
+            if candidate_hash == live_hash:
+                return dtb_relpath, []
+            else:
+                diff_len = len(diff_dts(candidate_dts, live_dts_str))
+                if diff_len < min_diff:
+                    min_diff = diff_len
+                    best_match = dtb_relpath
+                    best_dts = candidate_dts
+
+    if best_dts:
+        overlay_diff = diff_dts(best_dts, live_dts_str)
+        return best_match, overlay_diff
+
+    return None, "No match found"
+
+
 def dt_gencache() -> dict:
     res = {"base": {}, "overlays": {}}
-    dtb_root = Path("/boot/dtbs")
-
-    base_files = list(dtb_root.rglob("*.dtb"))
-    overlay_files = list(dtb_root.rglob("*.dtbo"))
-
     try:
+        dtb_root = Path("/boot/dtbs")
+
+        base_files = list(dtb_root.rglob("*.dtb"))
+        overlay_files = list(dtb_root.rglob("*.dtbo"))
+
         with ThreadPoolExecutor() as executor:
             future_to_path_base = {executor.submit(extract_dtb_info, path): path for path in base_files}
             future_to_path_overlay = {executor.submit(extract_dtb_info, path): path for path in overlay_files}
@@ -363,13 +462,51 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
             print("No operations specified.\n\nUsage: list/base/overlay\n")
         else:
             if cmd[0] == "list":
-                print("Base Device Trees:\n")
+                print("Base Device Trees:")
                 maxnl = max(len(v["name"]) for v in dts["base"].values())
-                print("NAME" + ((maxnl - 4) * " ") + " | ")
+                maxde = max(max(len(v["description"] if v["description"] is not None else []) for v in dts["base"].values()), 11)
+                maxco = max(len(",".join(v["compatible"])) for v in dts["base"].values())
+                print(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
                 for tree in dts["base"].keys():
-                    print(dts["base"][tree]["name"] + ((maxnl - len(dts["base"][tree]["name"])) * " ") + " | ")
+                    base = dts["base"][tree]
+                    name = base["name"]
+                    desc = base["description"] or ""
+
+                    compat = base["compatible"]
+                    if compat:
+                        compat_str = '"' + '","'.join(compat) + '"'
+                    else:
+                        compat_str = ""
+
+                    print(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
+                print("\nOverlays:")
+                maxnl = max(len(v["name"]) for v in dts["overlays"].values())
+                maxde = max(max(len(v["description"] if v["description"] is not None else []) for v in dts["overlays"].values()), 11)
+                maxco = max(len(",".join(v["compatible"])) for v in dts["overlays"].values())
+                print(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
+                for tree in dts["overlays"].keys():
+                    overlay = dts["overlays"][tree]
+                    name = overlay["name"]
+                    desc = overlay["description"] or ""
+
+                    compat = overlay["compatible"]
+                    if compat:
+                        compat_str = '"' + '","'.join(compat) + '"'
+                    else:
+                        compat_str = ""
+
+                    print(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
+                print("\nLive System Tree:")
+                base, overlays = dt_detect_live()
+                print(f"Base: {base} (detected)\n\nOverlay-like entries (diffs):")
+                for line in overlays:
+                    print("  +", line)
             elif cmd[0] == "base":
-                pass
+                if len(cmd)-1:
+                    pass
+                else:
+                    base, overlays = dt_detect_live()
+
             elif cmd[0] == "overlay":
                 if len(cmd) > 1:
                     if cmd[1] == "enable":
@@ -396,6 +533,27 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
 
     if not res:
         return
+
+    options = [
+        "Set the Base System Device Tree",
+        "Enable / Disable Overlays",
+        "View Currently Enabled Trees",
+        "Main Menu",
+    ]
+
+    while True:
+        selection = draw_menu(stdscr, "Device Tree Manager", options)
+        if selection is None or options[selection] == "Main Menu":
+            return
+
+        stdscr.clear()
+        stdscr.refresh()
+        if options[selection] == "Set the Base System Device Tree":
+            pass
+        if options[selection] == "Enable / Disable Overlays":
+            pass
+        if options[selection] == "View Currently Enabled Trees":
+            pass
 
 
 def hack_pipewire(stdscr=None) -> None:

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import re
 import os
 import sys
 import time
@@ -25,7 +26,7 @@ dts_cache = {}
 # --------------- RUNNER ----------------
 
 
-def wrap_lines(lines, width):
+def wrap_lines(lines, width) -> list:
     return [wrapped for line in lines for wrapped in textwrap.wrap(line, width)]
 
 
@@ -87,7 +88,7 @@ def cmdr(cmd: list, stdscr=None, label: str = None) -> str:
     return "".join(output)
 
 
-def cli_runner(cmd: str, elevate: bool = False):
+def cli_runner(cmd: str, elevate: bool = False) -> None:
     global LOG_FILE, ROOT_MODE
 
     if elevate and not ROOT_MODE:
@@ -108,7 +109,7 @@ def cli_runner(cmd: str, elevate: bool = False):
 
 def tui_runner(
     stdscr, label: str, cmd: list, elevate: bool = False, prompt: bool = True
-):
+) -> None:
     global LOG_FILE, ROOT_MODE
 
     stdscr.clear()
@@ -213,7 +214,7 @@ def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
     stdscr.attroff(curses.A_REVERSE)
     stdscr.refresh()
 
-    while True: # Way too many ways to do this, cba to do it fancy
+    while True:  # Way too many ways to do this, cba to do it fancy
         dat = stdscr.getch()
         if dat == ord("\n"):
             if sel is not None:
@@ -258,11 +259,210 @@ def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
 
 def runner(
     cmd: list, elevate=True, stdscr=None, label: str = APP_NAME, prompt: bool = True
-):
+) -> None:
     if stdscr is None:
         cli_runner(cmd, elevate=elevate)
     else:
         tui_runner(stdscr, label, cmd, elevate=elevate, prompt=prompt)
+
+
+# ---- DEVICE TREE SUPPORT FUNCTIONS ----
+
+
+def safe_exists(path: str) -> bool:
+    try:
+        real_path = os.path.realpath(path)
+
+        boot_path = os.path.dirname(path)
+        if not os.path.isdir(boot_path):
+            return False
+
+        return os.path.isfile(real_path)
+    except Exception:
+        return False
+
+
+def grub_exists() -> bool:
+    return safe_exists("/boot/grub/grub.cfg")
+
+
+def extlinux_exists() -> bool:
+    return safe_exists("/boot/extlinux/extlinux.conf")
+
+
+def booted_with_edk() -> bool:
+    try:
+        output = subprocess.check_output(["journalctl", "-b"], text=True)
+        lines = output.splitlines()[:20]
+        pattern = re.compile(r"efi: EFI v[\d.]+ by .+", re.IGNORECASE)
+        return any(pattern.search(line) for line in lines)
+    except subprocess.CalledProcessError:
+        return False
+
+
+def extract_dtb_info(dtb_path: Path) -> dict | None:
+    output = dtb_to_dts(dtb_path)
+
+    description = None
+    compatible = []
+
+    for line in output.splitlines():
+        line = line.strip()
+        if line.startswith("description =") and description is not None:
+            description = line.split("=", 1)[1].strip().strip('"').strip(";")
+        elif line.startswith("compatible =") and not compatible:
+            compat_str = line.split("=", 1)[1].strip().strip(";")
+            compatible = [compat_str.strip().strip('"')]
+
+    name = str(dtb_path)
+    name = name[name.rfind("/") + 1 : name.rfind(".")]
+
+    return {
+        "name": name,
+        "description": description,
+        "compatible": compatible,
+    }
+
+
+def dtb_to_dts(dtb_path) -> str | None:
+    global dts_cache
+    if dtb_path in dts_cache:
+        return dts_cache[dtb_path]
+    try:
+        res = subprocess.check_output(
+            ["dtc", "-I", "dtb", "-O", "dts", "-q", str(dtb_path)],
+            stderr=subprocess.DEVNULL,
+        ).decode()
+
+        dts_cache[dtb_path] = res
+        return res
+    except subprocess.CalledProcessError:
+        return None
+
+
+def fdt_hash_from_proc() -> str | None:
+    try:
+        return subprocess.check_output(
+            ["dtc", "-I", "fs", "-O", "dts", "/proc/device-tree"],
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        return None
+
+
+def hash_str(data):
+    return hashlib.sha256(data.encode()).hexdigest()
+
+
+def identify_base_dtb() -> tuple | None:
+    live_dts = fdt_hash_from_proc()
+    if live_dts is None:
+        return None, "Failed to read live FDT"
+
+    live_hash = hash_str(live_dts.decode())
+
+    candidates = list(DTB_PATH.rglob("*.dtb"))
+    matches = []
+    for dtb in candidates:
+        dts = dtb_to_dts(dtb)
+        if dts is None:
+            continue
+        if hash_str(dts) == live_hash:
+            matches.append(dtb.relative_to(DTB_PATH))
+
+    if matches:
+        return matches[0], None
+    else:
+        return None, "No exact match found (overlays likely applied)"
+
+
+def diff_dts(base_dts, live_dts) -> list:
+    base_lines = set(base_dts.splitlines())
+    live_lines = set(live_dts.splitlines())
+    return list(live_lines - base_lines)
+
+
+def dt_process_candidate(dtb_path, live_hash) -> tuple | None:
+    dts = dtb_to_dts(dtb_path)
+    if dts is None:
+        return None
+    h = hash_str(dts)
+    return (dtb_path.relative_to(DTB_PATH), h, dts)
+
+
+def dt_detect_live() -> tuple:
+    live_dts = fdt_hash_from_proc()
+    if live_dts is None:
+        return None, "Could not read live FDT"
+
+    live_dts_str = live_dts.decode()
+    live_hash = hash_str(live_dts_str)
+    candidates = list(DTB_PATH.rglob("*.dtb"))
+
+    best_match = None
+    best_dts = None
+    overlay_diff = []
+    min_diff = float("inf")
+
+    with ThreadPoolExecutor() as executor:
+        futures = {
+            executor.submit(dt_process_candidate, dtb, live_hash): dtb
+            for dtb in candidates
+        }
+
+        for future in as_completed(futures):
+            result = future.result()
+            if result is None:
+                continue
+            dtb_relpath, candidate_hash, candidate_dts = result
+            if candidate_hash == live_hash:
+                return dtb_relpath, []
+            else:
+                diff_len = len(diff_dts(candidate_dts, live_dts_str))
+                if diff_len < min_diff:
+                    min_diff = diff_len
+                    best_match = dtb_relpath
+                    best_dts = candidate_dts
+
+    if best_dts:
+        overlay_diff = diff_dts(best_dts, live_dts_str)
+        return best_match, overlay_diff
+
+    return None, "No match found"
+
+
+def dt_gencache() -> dict:
+    res = {"base": {}, "overlays": {}}
+    try:
+        dtb_root = Path("/boot/dtbs")
+
+        base_files = list(dtb_root.rglob("*.dtb"))
+        overlay_files = list(dtb_root.rglob("*.dtbo"))
+
+        with ThreadPoolExecutor() as executor:
+            future_to_path_base = {
+                executor.submit(extract_dtb_info, path): path for path in base_files
+            }
+            future_to_path_overlay = {
+                executor.submit(extract_dtb_info, path): path for path in overlay_files
+            }
+
+            for future in as_completed(future_to_path_base):
+                path = future_to_path_base[future]
+                result = future.result()
+                if result:
+                    res["base"][str(path)] = result
+
+            for future in as_completed(future_to_path_overlay):
+                path = future_to_path_overlay[future]
+                result = future.result()
+                if result:
+                    res["overlays"][str(path)] = result
+    except KeyboardInterrupt:
+        pass
+    except:
+        pass
+    return res
 
 
 # -------- ACTIVATABLE COMMANDS ---------
@@ -296,160 +496,6 @@ def filesystem_resize(stdscr=None) -> None:
     runner(cmd, True, stdscr, "Filesystem Resize")
 
 
-def extract_dtb_info(dtb_path: Path) -> dict | None:
-    output = dtb_to_dts(dtb_path)
-
-    description = None
-    compatible = []
-
-    for line in output.splitlines():
-        line = line.strip()
-        if line.startswith("description =") and description is not None:
-            description = line.split("=", 1)[1].strip().strip('"').strip(";")
-        elif line.startswith("compatible =") and not compatible:
-            compat_str = line.split("=", 1)[1].strip().strip(";")
-            compatible = [compat_str.strip().strip('"')]
-
-    name = str(dtb_path)
-    name = name[name.rfind("/")+1:name.rfind(".")]
-
-    return {
-        "name": name,
-        "description": description,
-        "compatible": compatible,
-    }
-
-
-def dtb_to_dts(dtb_path):
-    global dts_cache
-    if dtb_path in dts_cache:
-        return dts_cache[dtb_path]
-    try:
-        res = subprocess.check_output([
-            "dtc", "-I", "dtb", "-O", "dts", "-q", str(dtb_path)
-        ], stderr=subprocess.DEVNULL).decode()
-
-        dts_cache[dtb_path] = res
-        return res
-    except subprocess.CalledProcessError:
-        return None
-
-def fdt_hash_from_proc():
-    try:
-        return subprocess.check_output([
-            "dtc", "-I", "fs", "-O", "dts", "/proc/device-tree"
-        ], stderr=subprocess.DEVNULL)
-    except subprocess.CalledProcessError:
-        return None
-
-
-def hash_str(data):
-    return hashlib.sha256(data.encode()).hexdigest()
-
-
-def identify_base_dtb():
-    live_dts = fdt_hash_from_proc()
-    if live_dts is None:
-        return None, "Failed to read live FDT"
-
-    live_hash = hash_str(live_dts.decode())
-
-    candidates = list(DTB_PATH.rglob("*.dtb"))
-    matches = []
-    for dtb in candidates:
-        dts = dtb_to_dts(dtb)
-        if dts is None:
-            continue
-        if hash_str(dts) == live_hash:
-            matches.append(dtb.relative_to(DTB_PATH))
-
-    if matches:
-        return matches[0], None
-    else:
-        return None, "No exact match found (overlays likely applied)"
-
-
-def diff_dts(base_dts, live_dts):
-    base_lines = set(base_dts.splitlines())
-    live_lines = set(live_dts.splitlines())
-    return list(live_lines - base_lines)
-
-
-def dt_process_candidate(dtb_path, live_hash):
-    dts = dtb_to_dts(dtb_path)
-    if dts is None:
-        return None
-    h = hash_str(dts)
-    return (dtb_path.relative_to(DTB_PATH), h, dts)
-
-def dt_detect_live() -> tuple:
-    live_dts = fdt_hash_from_proc()
-    if live_dts is None:
-        return None, "Could not read live FDT"
-
-    live_dts_str = live_dts.decode()
-    live_hash = hash_str(live_dts_str)
-    candidates = list(DTB_PATH.rglob("*.dtb"))
-
-    best_match = None
-    best_dts = None
-    overlay_diff = []
-    min_diff = float("inf")
-
-    with ThreadPoolExecutor() as executor:
-        futures = {executor.submit(dt_process_candidate, dtb, live_hash): dtb for dtb in candidates}
-
-        for future in as_completed(futures):
-            result = future.result()
-            if result is None:
-                continue
-            dtb_relpath, candidate_hash, candidate_dts = result
-            if candidate_hash == live_hash:
-                return dtb_relpath, []
-            else:
-                diff_len = len(diff_dts(candidate_dts, live_dts_str))
-                if diff_len < min_diff:
-                    min_diff = diff_len
-                    best_match = dtb_relpath
-                    best_dts = candidate_dts
-
-    if best_dts:
-        overlay_diff = diff_dts(best_dts, live_dts_str)
-        return best_match, overlay_diff
-
-    return None, "No match found"
-
-
-def dt_gencache() -> dict:
-    res = {"base": {}, "overlays": {}}
-    try:
-        dtb_root = Path("/boot/dtbs")
-
-        base_files = list(dtb_root.rglob("*.dtb"))
-        overlay_files = list(dtb_root.rglob("*.dtbo"))
-
-        with ThreadPoolExecutor() as executor:
-            future_to_path_base = {executor.submit(extract_dtb_info, path): path for path in base_files}
-            future_to_path_overlay = {executor.submit(extract_dtb_info, path): path for path in overlay_files}
-
-            for future in as_completed(future_to_path_base):
-                path = future_to_path_base[future]
-                result = future.result()
-                if result:
-                    res["base"][str(path)] = result
-
-            for future in as_completed(future_to_path_overlay):
-                path = future_to_path_overlay[future]
-                result = future.result()
-                if result:
-                    res["overlays"][str(path)] = result
-    except KeyboardInterrupt:
-        pass
-    except:
-        pass
-    return res
-
-
 def dt_manager(stdscr=None, cmd: list = []) -> None:
     message(["Please wait.."], stdscr, "Generating Device Tree Caches", False)
     dts = dt_gencache()
@@ -464,9 +510,19 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
             if cmd[0] == "list":
                 print("Base Device Trees:")
                 maxnl = max(len(v["name"]) for v in dts["base"].values())
-                maxde = max(max(len(v["description"] if v["description"] is not None else []) for v in dts["base"].values()), 11)
-                maxco = max(len(",".join(v["compatible"])) for v in dts["base"].values())
-                print(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
+                maxde = max(
+                    max(
+                        len(v["description"] if v["description"] is not None else [])
+                        for v in dts["base"].values()
+                    ),
+                    11,
+                )
+                maxco = max(
+                    len(",".join(v["compatible"])) for v in dts["base"].values()
+                )
+                print(
+                    f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE'
+                )
                 for tree in dts["base"].keys():
                     base = dts["base"][tree]
                     name = base["name"]
@@ -481,9 +537,19 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                     print(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
                 print("\nOverlays:")
                 maxnl = max(len(v["name"]) for v in dts["overlays"].values())
-                maxde = max(max(len(v["description"] if v["description"] is not None else []) for v in dts["overlays"].values()), 11)
-                maxco = max(len(",".join(v["compatible"])) for v in dts["overlays"].values())
-                print(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
+                maxde = max(
+                    max(
+                        len(v["description"] if v["description"] is not None else [])
+                        for v in dts["overlays"].values()
+                    ),
+                    11,
+                )
+                maxco = max(
+                    len(",".join(v["compatible"])) for v in dts["overlays"].values()
+                )
+                print(
+                    f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE'
+                )
                 for tree in dts["overlays"].keys():
                     overlay = dts["overlays"][tree]
                     name = overlay["name"]
@@ -502,7 +568,7 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                 for line in overlays:
                     print("  +", line)
             elif cmd[0] == "base":
-                if len(cmd)-1:
+                if len(cmd) - 1:
                     pass
                 else:
                     base, overlays = dt_detect_live()
@@ -514,9 +580,13 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                     elif cmd[1] == "disable":
                         pass
                     else:
-                        print("Invalid operation specified.\n\nUsage: enable/disable overlay.dtbo\n")
+                        print(
+                            "Invalid operation specified.\n\nUsage: enable/disable overlay.dtbo\n"
+                        )
                 else:
-                    print("No operations specified.\n\nUsage: enable/disable overlay.dtbo\n")
+                    print(
+                        "No operations specified.\n\nUsage: enable/disable overlay.dtbo\n"
+                    )
             else:
                 print("Invalid operation specified.\n\nUsage: list/base/overlay\n")
         return
@@ -752,6 +822,17 @@ def autoremove(stdscr=None) -> None:
     runner(cmd, True, stdscr, "Remove Unused Packages")
 
 
+def debug_info(stdscr = None) -> None:
+    grub = grub_exists()
+    ext = extlinux_exists()
+    efi = booted_with_edk()
+    message(
+        [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}"],
+        stdscr,
+        "Debug Information",
+    )
+
+
 # -------------- TUI LOGIC --------------
 
 
@@ -946,7 +1027,7 @@ def main_menu(stdscr):
     stdscr.bkgd(" ", curses.color_pair(1))
     stdscr.clear()
 
-    options = ["System Upkeep", "System Tweaks", "Packages", "Exit"]
+    options = ["System Upkeep", "System Tweaks", "Packages", "Debug", "Exit"]
 
     while True:
         selection = draw_menu(stdscr, APP_NAME, options)
@@ -959,6 +1040,8 @@ def main_menu(stdscr):
             sys_tweaks_menu(stdscr)
         if options[selection] == "Packages":
             packages_menu(stdscr)
+        if options[selection] == "Debug":
+            debug_menu(stdscr)
 
 
 def tui():
@@ -1003,6 +1086,8 @@ def dp(args):
             unlock_pacman()
         elif args.action == "autoremove":
             autoremove()
+    elif cmd == "debug":
+        debug_info()
     else:
         print("Unknown command")
 
@@ -1068,6 +1153,9 @@ def main():
 
     # Info
     subparsers.add_parser("info")
+
+    # Debug
+    subparsers.add_parser("debug")
 
     args = parser.parse_args()
 

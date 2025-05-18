@@ -4,6 +4,7 @@ import re
 import os
 import sys
 import time
+import shlex
 import curses
 import hashlib
 import argparse
@@ -465,6 +466,120 @@ def dt_gencache() -> dict:
     return res
 
 
+def debug_info(stdscr = None) -> None:
+    grub = grub_exists()
+    ext = extlinux_exists()
+    efi = booted_with_edk()
+    message(
+        [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}"],
+        stdscr,
+        "Debug Information",
+    )
+
+
+def parse_extlinux_conf(source) -> dict:
+    if hasattr(source, 'read'):
+        lines = source.read().splitlines()
+    else:
+        lines = source.splitlines()
+
+    config = {
+        'global': {},
+        'labels': {}
+    }
+
+    current_label = None
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+
+        if line.lower().startswith('label '):
+            current_label = line[6:].strip()
+            config['labels'][current_label] = {}
+            continue
+
+        key_value = line.split(None, 1)
+        if len(key_value) == 2:
+            key, value = key_value
+            key = key.lower()
+            value = value.strip()
+
+            if key == 'fdtoverlays':
+                value = value.split()
+
+            if current_label:
+                config['labels'][current_label][key] = value
+            else:
+                config['global'][key] = value
+        else:
+            key = key_value[0].lower()
+            if current_label:
+                config['labels'][current_label][key] = None
+            else:
+                config['global'][key] = None
+
+    return config
+
+
+def serialize_extlinux_conf(config: dict) -> str:
+    lines = []
+
+    for key, value in config.get('global', {}).items():
+        if value is None:
+            lines.append(key.upper())
+        else:
+            lines.append(f"{key.upper()} {value}")
+
+    if lines:
+        lines.append("")
+
+    for label, directives in config.get('labels', {}).items():
+        lines.append(f"LABEL {label}")
+        for key, value in directives.items():
+            if value is None:
+                lines.append(f"    {key.upper()}")
+            elif key == 'fdtoverlays' and isinstance(value, list):
+                joined = ' '.join(value)
+                lines.append(f"    {key.upper()} {joined}")
+            else:
+                lines.append(f"    {key.upper()} {value}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
+def parse_grub() -> dict:
+    config = {}
+    with open("/etc/default/grub") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' in line:
+                key, val = line.split('=', 1)
+                key = key.strip()
+                try:
+                    val = shlex.split(val, posix=True)
+                    config[key] = val[0] if len(val) == 1 else val
+                except ValueError:
+                    config[key] = val.strip()
+    return config
+
+
+def encode_grub(config: dict) -> str:
+    lines = []
+    for key, val in config.items():
+        if isinstance(val, list):
+            # Join multi-word values if they were stored as list
+            val_str = ' '.join(val)
+        else:
+            val_str = str(val)
+        quoted_val = shlex.quote(val_str)
+        lines.append(f'{key}={quoted_val}')
+    return '\n'.join(lines)
+
 # -------- ACTIVATABLE COMMANDS ---------
 
 
@@ -820,17 +935,6 @@ def autoremove(stdscr=None) -> None:
     ]
     elevate = True
     runner(cmd, True, stdscr, "Remove Unused Packages")
-
-
-def debug_info(stdscr = None) -> None:
-    grub = grub_exists()
-    ext = extlinux_exists()
-    efi = booted_with_edk()
-    message(
-        [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}"],
-        stdscr,
-        "Debug Information",
-    )
 
 
 # -------------- TUI LOGIC --------------

@@ -29,10 +29,9 @@ dts_cache = {}
 
 def elevated_file_write(filepath: str, content: str):
     proc = subprocess.run(
-        ['pkexec', 'tee', filepath],
-        input=content.encode(),
-        check=True
+        ["pkexec", "tee", filepath], input=content.encode(), check=True
     )
+
 
 def wrap_lines(lines: list, width: int) -> list:
     return [wrapped for line in lines for wrapped in textwrap.wrap(line, width)]
@@ -162,7 +161,7 @@ def message(
             print(line)
         return
 
-    text = [subline for line in text for subline in line.split('\n')]
+    text = [subline for line in text for subline in line.split("\n")]
 
     maxy, _ = stdscr.getmaxyx()
     stdscr.clear()
@@ -291,7 +290,11 @@ def selector(items: list, stdscr, multi: bool, label: str | None = None) -> list
             y = start_y + view_idx
             if item_idx >= len(items):
                 break
-            prefix = "- [x]" if multi and selected[item_idx] else "- [ ]" if multi else " <*>" if idx == item_idx else " < >"
+            prefix = (
+                "- [x]"
+                if multi and selected[item_idx]
+                else "- [ ]" if multi else " <*>" if idx == item_idx else " < >"
+            )
             text = f"{prefix} {items[item_idx]}"
             attr = curses.A_REVERSE if item_idx == idx else curses.A_NORMAL
             stdscr.addnstr(y, 2, text, w - 4, attr)
@@ -300,15 +303,15 @@ def selector(items: list, stdscr, multi: bool, label: str | None = None) -> list
     while True:
         draw()
         key = stdscr.getch()
-        if key ==curses.KEY_UP:
+        if key == curses.KEY_UP:
             idx = (idx - 1) % len(items)
         elif key == curses.KEY_DOWN:
             idx = (idx + 1) % len(items)
-        elif key == ord(' ') and multi:
+        elif key == ord(" ") and multi:
             selected[idx] = not selected[idx]
         elif key == ord("q"):
             return [] if multi else None
-        elif key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
+        elif key in (curses.KEY_ENTER, ord("\n"), ord("\r")):
             if multi:
                 return [i for i, sel in enumerate(selected) if sel]
             else:
@@ -525,7 +528,7 @@ def dt_gencache() -> dict:
     return res
 
 
-def debug_info(stdscr = None) -> None:
+def debug_info(stdscr=None) -> None:
     grub = grub_exists()
     ext = extlinux_exists()
     efi = booted_with_edk()
@@ -537,26 +540,23 @@ def debug_info(stdscr = None) -> None:
 
 
 def parse_extlinux_conf(source) -> dict:
-    if hasattr(source, 'read'):
+    if hasattr(source, "read"):
         lines = source.read().splitlines()
     else:
         lines = source.splitlines()
 
-    config = {
-        'global': {},
-        'labels': {}
-    }
+    config = {"global": {}, "labels": {}}
 
     current_label = None
 
     for raw_line in lines:
         line = raw_line.strip()
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             continue
 
-        if line.lower().startswith('label '):
+        if line.lower().startswith("label "):
             current_label = line[6:].strip()
-            config['labels'][current_label] = {}
+            config["labels"][current_label] = {}
             continue
 
         key_value = line.split(None, 1)
@@ -565,19 +565,19 @@ def parse_extlinux_conf(source) -> dict:
             key = key.lower()
             value = value.strip()
 
-            if key == 'fdtoverlays':
+            if key == "fdtoverlays":
                 value = value.split()
 
             if current_label:
-                config['labels'][current_label][key] = value
+                config["labels"][current_label][key] = value
             else:
-                config['global'][key] = value
+                config["global"][key] = value
         else:
             key = key_value[0].lower()
             if current_label:
-                config['labels'][current_label][key] = None
+                config["labels"][current_label][key] = None
             else:
-                config['global'][key] = None
+                config["global"][key] = None
 
     return config
 
@@ -585,7 +585,7 @@ def parse_extlinux_conf(source) -> dict:
 def serialize_extlinux_conf(config: dict) -> str:
     lines = []
 
-    for key, value in config.get('global', {}).items():
+    for key, value in config.get("global", {}).items():
         if value is None:
             lines.append(key.upper())
         else:
@@ -594,13 +594,13 @@ def serialize_extlinux_conf(config: dict) -> str:
     if lines:
         lines.append("")
 
-    for label, directives in config.get('labels', {}).items():
+    for label, directives in config.get("labels", {}).items():
         lines.append(f"LABEL {label}")
         for key, value in directives.items():
             if value is None:
                 lines.append(f"    {key.upper()}")
-            elif key == 'fdtoverlays' and isinstance(value, list):
-                joined = ' '.join(value)
+            elif key == "fdtoverlays" and isinstance(value, list):
+                joined = " ".join(value)
                 lines.append(f"    {key.upper()} {joined}")
             else:
                 lines.append(f"    {key.upper()} {value}")
@@ -614,10 +614,10 @@ def parse_grub() -> dict:
     with open("/etc/default/grub") as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
-            if '=' in line:
-                key, val = line.split('=', 1)
+            if "=" in line:
+                key, val = line.split("=", 1)
                 key = key.strip()
                 try:
                     val = shlex.split(val, posix=True)
@@ -652,16 +652,16 @@ def encode_grub(config: dict) -> str:
     for key, val in config.items():
         if isinstance(val, list):
             # Join multi-word values if they were stored as list
-            val_str = ' '.join(val)
+            val_str = " ".join(val)
         else:
             val_str = val
 
         quoted_val = force_quote(val_str)
-        lines.append(f'{key}={quoted_val}')
-    return '\n'.join(lines)
+        lines.append(f"{key}={quoted_val}")
+    return "\n".join(lines)
 
 
-def set_base_dtb(stdscr = None, dtb: str = None) -> None:
+def set_base_dtb(stdscr=None, dtb: str = None) -> None:
     grub = grub_exists()
     ext = extlinux_exists()
 
@@ -679,15 +679,28 @@ def set_base_dtb(stdscr = None, dtb: str = None) -> None:
         if not DRYRUN:
             elevated_file_write("/etc/default/grub", grubcfg)
         else:
-            message(["The GRUB config would have been updated with the following:", "", grubcfg], stdscr, "DRYRUN Simulated Output")
+            message(
+                [
+                    "The GRUB config would have been updated with the following:",
+                    "",
+                    grubcfg,
+                ],
+                stdscr,
+                "DRYRUN Simulated Output",
+            )
 
-        runner(["grub-mkconfig", "-o" ,"/boot/grub/grub.cfg"], True, stdscr, "Update GRUB Configuration")
+        runner(
+            ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
+            True,
+            stdscr,
+            "Update GRUB Configuration",
+        )
 
     if ext:
         pass
 
 
-def set_overlays(stdscr = None, dtbos: list = None) -> None:
+def set_overlays(stdscr=None, dtbos: list = None) -> None:
     grub = grub_exists()
     ext = extlinux_exists()
 
@@ -701,12 +714,26 @@ def set_overlays(stdscr = None, dtbos: list = None) -> None:
         if not DRYRUN:
             elevated_file_write("/etc/default/grub", grubcfg)
         else:
-            message(["The GRUB config would have been updated with the following:", "", grubcfg], stdscr, "DRYRUN Simulated Output")
+            message(
+                [
+                    "The GRUB config would have been updated with the following:",
+                    "",
+                    grubcfg,
+                ],
+                stdscr,
+                "DRYRUN Simulated Output",
+            )
 
-        runner(["grub-mkconfig", "-o" ,"/boot/grub/grub.cfg"], True, stdscr, "Update GRUB Configuration")
+        runner(
+            ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
+            True,
+            stdscr,
+            "Update GRUB Configuration",
+        )
 
     if ext:
         pass
+
 
 # -------- ACTIVATABLE COMMANDS ---------
 
@@ -868,9 +895,7 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                 len(v["description"] if v["description"] is not None else [])
                 for v in dts["base"].values()
             )
-            maxco = max(
-                len(",".join(v["compatible"])) for v in dts["base"].values()
-            )
+            maxco = max(len(",".join(v["compatible"])) for v in dts["base"].values())
 
             basedt = []
             matchdt = []

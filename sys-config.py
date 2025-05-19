@@ -27,7 +27,14 @@ dts_cache = {}
 # --------------- RUNNER ----------------
 
 
-def wrap_lines(lines, width) -> list:
+def elevated_file_write(filepath: str, content: str):
+    proc = subprocess.run(
+        ['pkexec', 'tee', filepath],
+        input=content.encode(),
+        check=True
+    )
+
+def wrap_lines(lines: list, width: int) -> list:
     return [wrapped for line in lines for wrapped in textwrap.wrap(line, width)]
 
 
@@ -155,6 +162,8 @@ def message(
             print(line)
         return
 
+    text = [subline for line in text for subline in line.split('\n')]
+
     maxy, _ = stdscr.getmaxyx()
     stdscr.clear()
     draw_border(stdscr)
@@ -256,6 +265,56 @@ def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
 
     wait_clear(stdscr)
     return sel
+
+
+def selector(items: list, stdscr, multi: bool, label: str | None = None) -> list | int:
+    curses.curs_set(0)
+    selected = [False] * len(items)
+    idx = 0
+    offset = 0
+
+    def draw() -> None:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+        if label:
+            stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
+        start_y = 3
+        view_h = h - start_y - 1
+        draw_border(stdscr)
+        nonlocal offset
+        if idx < offset:
+            offset = idx
+        elif idx >= offset + view_h:
+            offset = idx - view_h + 1
+        for view_idx in range(view_h):
+            item_idx = offset + view_idx
+            y = start_y + view_idx
+            if item_idx >= len(items):
+                break
+            prefix = "- [x]" if multi and selected[item_idx] else "- [ ]" if multi else " <*>" if idx == item_idx else " < >"
+            text = f"{prefix} {items[item_idx]}"
+            attr = curses.A_REVERSE if item_idx == idx else curses.A_NORMAL
+            stdscr.addnstr(y, 2, text, w - 4, attr)
+        stdscr.refresh()
+
+    while True:
+        draw()
+        key = stdscr.getch()
+        if key ==curses.KEY_UP:
+            idx = (idx - 1) % len(items)
+        elif key == curses.KEY_DOWN:
+            idx = (idx + 1) % len(items)
+        elif key == ord(' ') and multi:
+            selected[idx] = not selected[idx]
+        elif key == ord("q"):
+            return [] if multi else None
+        elif key in (curses.KEY_ENTER, ord('\n'), ord('\r')):
+            if multi:
+                return [i for i, sel in enumerate(selected) if sel]
+            else:
+                return idx
+        elif key == 27:  # ESC
+            return [] if multi else None
 
 
 def runner(
@@ -562,10 +621,30 @@ def parse_grub() -> dict:
                 key = key.strip()
                 try:
                     val = shlex.split(val, posix=True)
-                    config[key] = val[0] if len(val) == 1 else val
+                    val = val[0] if len(val) == 1 else val
+                    if isinstance(val, list):
+                        for i in range(len(val)):
+                            if val[i].isdigit():
+                                try:
+                                    val[i] = int(val[i])
+                                except:
+                                    pass
+                    elif isinstance(val, str):
+                        if val.isdigit():
+                            try:
+                                val = int(val)
+                            except:
+                                pass
+                    config[key] = val
                 except ValueError:
                     config[key] = val.strip()
     return config
+
+
+def force_quote(val):
+    if isinstance(val, int):
+        return str(val)
+    return "'" + str(val).replace("'", "'\"'\"'") + "'"
 
 
 def encode_grub(config: dict) -> str:
@@ -575,10 +654,59 @@ def encode_grub(config: dict) -> str:
             # Join multi-word values if they were stored as list
             val_str = ' '.join(val)
         else:
-            val_str = str(val)
-        quoted_val = shlex.quote(val_str)
+            val_str = val
+
+        quoted_val = force_quote(val_str)
         lines.append(f'{key}={quoted_val}')
     return '\n'.join(lines)
+
+
+def set_base_dtb(stdscr = None, dtb: str = None) -> None:
+    grub = grub_exists()
+    ext = extlinux_exists()
+
+    if grub:
+        grubcfg = parse_grub()
+
+        if dtb is not None:
+            grubcfg["GRUB_DTB"] = dtb
+        else:
+            if "GRUB_DTB" in grubcfg.keys():
+                del grubcfg["GRUB_DTB"]
+
+        grubcfg = encode_grub(grubcfg)
+
+        if not DRYRUN:
+            elevated_file_write("/etc/default/grub", grubcfg)
+        else:
+            message(["The GRUB config would have been updated with the following:", "", grubcfg], stdscr, "DRYRUN Simulated Output")
+
+        runner(["grub-mkconfig", "-o" ,"/boot/grub/grub.cfg"], True, stdscr, "Update GRUB Configuration")
+
+    if ext:
+        pass
+
+
+def set_overlays(stdscr = None, dtbos: list = None) -> None:
+    grub = grub_exists()
+    ext = extlinux_exists()
+
+    if grub:
+        grubcfg = parse_grub()
+
+        # do lomgicc
+
+        grubcfg = encode_grub(grubcfg)
+
+        if not DRYRUN:
+            elevated_file_write("/etc/default/grub", grubcfg)
+        else:
+            message(["The GRUB config would have been updated with the following:", "", grubcfg], stdscr, "DRYRUN Simulated Output")
+
+        runner(["grub-mkconfig", "-o" ,"/boot/grub/grub.cfg"], True, stdscr, "Update GRUB Configuration")
+
+    if ext:
+        pass
 
 # -------- ACTIVATABLE COMMANDS ---------
 
@@ -686,8 +814,9 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                 if len(cmd) - 1:
                     pass
                 else:
+                    print("\nLive System Tree:")
                     base, overlays = dt_detect_live()
-
+                    print(f"Base: {base} (detected)\n\nOverlay-like entries (diffs):")
             elif cmd[0] == "overlay":
                 if len(cmd) > 1:
                     if cmd[1] == "enable":
@@ -734,9 +863,70 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
         stdscr.clear()
         stdscr.refresh()
         if options[selection] == "Set the Base System Device Tree":
-            pass
+            maxnl = max(len(v["name"]) for v in dts["base"].values())
+            maxde = max(
+                len(v["description"] if v["description"] is not None else [])
+                for v in dts["base"].values()
+            )
+            maxco = max(
+                len(",".join(v["compatible"])) for v in dts["base"].values()
+            )
+
+            basedt = []
+            matchdt = []
+
+            for tree in dts["base"].keys():
+                base = dts["base"][tree]
+                name = base["name"]
+
+                compat = base["compatible"]
+                if compat:
+                    compat_str = '"' + '","'.join(compat) + '"'
+                else:
+                    compat_str = ""
+
+                basedt.append(f"{name.ljust(maxnl)} | {compat_str}")
+                matchdt.append(tree)
+
+            res = selector(basedt, stdscr, False, "Select a device Tree")
+            if res is None:
+                return
+
         if options[selection] == "Enable / Disable Overlays":
-            pass
+            maxnl = max(len(v["name"]) for v in dts["overlays"].values())
+            maxde = max(
+                len(v["description"] if v["description"] is not None else [])
+                for v in dts["overlays"].values()
+            )
+            maxco = max(
+                len(",".join(v["compatible"])) for v in dts["overlays"].values()
+            )
+
+            basedt = []
+            matchdt = []
+
+            for tree in dts["overlays"].keys():
+                base = dts["overlays"][tree]
+                name = base["name"]
+                desc = base["description"] or ""
+
+                compat = base["compatible"]
+                if compat:
+                    compat_str = '"' + '","'.join(compat) + '"'
+                else:
+                    compat_str = ""
+
+                basedt.append(f"{name.ljust(maxnl)} | {compat_str}")
+                matchdt.append(tree)
+
+            res = selector(basedt, stdscr, True, "Select overlays")
+            if not res:
+                return
+
+            dtbos = []
+            for i in res:
+                dtbos.append(matchdt[i])
+
         if options[selection] == "View Currently Enabled Trees":
             pass
 
@@ -1145,7 +1335,7 @@ def main_menu(stdscr):
         if options[selection] == "Packages":
             packages_menu(stdscr)
         if options[selection] == "Debug":
-            debug_menu(stdscr)
+            debug_info(stdscr)
 
 
 def tui():

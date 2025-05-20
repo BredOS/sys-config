@@ -19,9 +19,6 @@ LOG_FILE = None
 DRYRUN = False
 ROOT_MODE = False
 
-DTB_PATH = Path("/boot/dtbs")
-PROC_DT = Path("/proc/device-tree")
-
 # --------------- RUNNER ----------------
 
 
@@ -128,6 +125,8 @@ def tui_runner(
     maxy, _ = stdscr.getmaxyx()
 
     if not prompt:
+        if DRYRUN:
+            time.sleep(3)
         return
 
     stdscr.attron(curses.A_REVERSE)
@@ -254,9 +253,22 @@ def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
     return sel
 
 
-def selector(items: list, stdscr, multi: bool, label: str | None = None) -> list | int:
+def selector(
+    items: list,
+    stdscr,
+    multi: bool,
+    label: str | None = None,
+    preselect: int | list = -1,
+) -> list | int:
     curses.curs_set(0)
     selected = [False] * len(items)
+    if isinstance(preselect, int):
+        if preselect != -1:
+            selected[preselect] = True
+            idx = preselect
+    else:
+        for i in preselect:
+            selected[i] = True
     idx = 0
     offset = 0
 
@@ -329,11 +341,11 @@ def debug_info(stdscr=None) -> None:
 
 
 def set_base_dtb(stdscr=None, dtb: str = None) -> None:
-    grub = grub_exists()
-    ext = extlinux_exists()
+    grub = dt.grub_exists()
+    ext = dt.extlinux_exists()
 
     if grub:
-        grubcfg = parse_grub()
+        grubcfg = dt.parse_grub()
 
         if dtb is not None:
             grubcfg["GRUB_DTB"] = dtb
@@ -341,7 +353,7 @@ def set_base_dtb(stdscr=None, dtb: str = None) -> None:
             if "GRUB_DTB" in grubcfg.keys():
                 del grubcfg["GRUB_DTB"]
 
-        grubcfg = encode_grub(grubcfg)
+        grubcfg = dt.encode_grub(grubcfg)
 
         if not DRYRUN:
             utilities.elevated_file_write("/etc/default/grub", grubcfg)
@@ -364,7 +376,35 @@ def set_base_dtb(stdscr=None, dtb: str = None) -> None:
         )
 
     if ext:
-        pass
+        extcfg = dt.parse_uboot()
+
+        if dtb is not None:
+            extcfg["U_BOOT_FDT"] = dtb
+        else:
+            if "U_BOOT_FDT" in extcfg.keys():
+                del extcfg["U_BOOT_FDT"]
+
+        extcfg = encode_uboot(extcfg)
+
+        if not DRYRUN:
+            utilities.elevated_file_write("/etc/default/u-boot", extcfg)
+        else:
+            message(
+                [
+                    "The u-boot config would have been updated with the following:",
+                    "",
+                    extcfg,
+                ],
+                stdscr,
+                "DRYRUN Simulated Output",
+            )
+
+        runner(
+            ["u-boot-update"],
+            True,
+            stdscr,
+            "Trigger U-Boot Update",
+        )
 
 
 def set_overlays(stdscr=None, dtbos: list = None) -> None:
@@ -372,11 +412,11 @@ def set_overlays(stdscr=None, dtbos: list = None) -> None:
     ext = extlinux_exists()
 
     if grub:
-        grubcfg = parse_grub()
+        grubcfg = dt.parse_grub()
 
         # do lomgicc
 
-        grubcfg = encode_grub(grubcfg)
+        grubcfg = dt.encode_grub(grubcfg)
 
         if not DRYRUN:
             utilities.elevated_file_write("/etc/default/grub", grubcfg)
@@ -399,7 +439,35 @@ def set_overlays(stdscr=None, dtbos: list = None) -> None:
         )
 
     if ext:
-        pass
+        extcfg = dt.parse_uboot()
+
+        if dtbos:
+            extcfg["U_BOOT_FDT_OVERLAYS"] = " ".join(dtbos)
+        else:
+            if "U_BOOT_FDT_OVERLAYS" in extcfg.keys():
+                del extcfg["U_BOOT_FDT_OVERLAYS"]
+
+        extcfg = dt.encode_uboot(extcfg)
+
+        if not DRYRUN:
+            utilities.elevated_file_write("/etc/default/u-boot", extcfg)
+        else:
+            message(
+                [
+                    "The u-boot config would have been updated with the following:",
+                    "",
+                    extcfg,
+                ],
+                stdscr,
+                "DRYRUN Simulated Output",
+            )
+
+        runner(
+            ["u-boot-update"],
+            True,
+            stdscr,
+            "Trigger U-Boot Update",
+        )
 
 
 # -------- ACTIVATABLE COMMANDS ---------
@@ -433,8 +501,91 @@ def filesystem_resize(stdscr=None) -> None:
     runner(cmd, True, stdscr, "Filesystem Resize")
 
 
+def uboot_migrator(stdscr=None) -> bool:
+    if (not dt.extlinux_exists()) or dt.booted_with_edk():
+        return True  # UEFI system
+
+    installed = dt.safe_exists("/usr/bin/u-boot-update")
+    if not installed:
+        res = confirm(
+            [
+                "Migrating to u-boot-update is required!",
+                "",
+                "Please make sure a system backup is available.",
+                "Press Y to continue, N to abort.",
+            ],
+            stdscr,
+            "U-Boot-Update Migrator",
+        )
+        if not res:
+            return False
+
+        runner(
+            [
+                "sh",
+                "-c",
+                '"pacman -Sy && pacman -S --noconfirm u-boot-update',
+            ],
+            True,
+            stdscr,
+            "Installing U-Boot Updater",
+            prompt=False,
+        )
+
+    extcfg = dt.parse_uboot()  # Will load defaults if not found
+    if extcfg["U_BOOT_IS_SETUP"] == "false":
+        oldextcfg = dt.parse_extlinux_conf(
+            Path("/boot/extlinux/extlinux.conf").read_text()
+        )
+
+        labels = oldextcfg["labels"]
+        _, label_data = next(iter(labels.items()))
+
+        extcfg["U_BOOT_IS_SETUP"] = "true"
+        extcfg["U_BOOT_MENU_LABEL"] = "BredOS"
+        extcfg["U_BOOT_COPY_DTB_TO_BOOT"] = "true"
+
+        if "append" in label_data:
+            params = label_data["append"]
+            extcfg["U_BOOT_PARAMETERS"] = re.sub(r"\s*root=[^\s]+", "", params).strip()
+
+        if "fdt" in label_data:
+            extcfg["U_BOOT_FDT"] = label_data["fdt"]
+        else:
+            if "U_BOOT_FDT" in extcfg:
+                del extcfg["U_BOOT_FDT"]
+
+        extcfg = dt.encode_uboot(extcfg)
+
+        if not DRYRUN:
+            utilities.elevated_file_write("/etc/default/u-boot", extcfg)
+        else:
+            message(
+                [
+                    "The u-boot config would have been updated with the following:",
+                    "",
+                    extcfg,
+                ],
+                stdscr,
+                "DRYRUN Simulated Output",
+            )
+
+        runner(
+            ["u-boot-update"],
+            True,
+            stdscr,
+            "Trigger U-Boot Update",
+        )
+    return True
+
+
 def dt_manager(stdscr=None, cmd: list = []) -> None:
     message(["Please wait.."], stdscr, "Generating Device Tree Caches", False)
+
+    migrated = uboot_migrator()
+    if not migrated:
+        return
+
     dts = dt.gencache()
     if not dts["base"]:
         message(["No Device Trees were detected!"], stdscr, "Device Tree Manager", True)
@@ -543,7 +694,7 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
         return
 
     options = [
-        "Set the Base System Device Tree",
+        "Set the Base Device Tree",
         "Enable / Disable Overlays",
         "View Currently Enabled Trees",
         "Main Menu",
@@ -556,7 +707,7 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
 
         stdscr.clear()
         stdscr.refresh()
-        if options[selection] == "Set the Base System Device Tree":
+        if options[selection] == "Set the Base Device Tree":
             maxnl = max(len(v["name"]) for v in dts["base"].values())
             maxde = max(
                 len(v["description"] if v["description"] is not None else [])
@@ -566,6 +717,8 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
 
             basedt = []
             matchdt = []
+            preselect = -1
+            live, _ = dt.detect_live()
 
             for tree in dts["base"].keys():
                 base = dts["base"][tree]
@@ -578,9 +731,13 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                     compat_str = ""
 
                 basedt.append(f"{name.ljust(maxnl)} | {compat_str}")
+                if name == live:
+                    preselect = len(matchdt)
                 matchdt.append(tree)
 
-            res = selector(basedt, stdscr, False, "Select a device Tree")
+            res = selector(
+                basedt, stdscr, False, "Select a device Tree", preselect=preselect
+            )
             if res is not None:
                 pass
 

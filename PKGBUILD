@@ -9,7 +9,7 @@ url=https://github.com/BredOS/sys-config
 license=('GPL3')
 provides=("bredos-config")
 
-depends=('python' 'dtc' 'python-bredos-common')
+depends=('python' 'dtc' 'python-bredos-common' 'u-boot-update')
 
 source=('sys-config.py' 'bredos-sysconfig.desktop')
 sha256sums=('SKIP' 'SKIP')

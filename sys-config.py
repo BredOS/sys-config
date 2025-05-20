@@ -550,10 +550,17 @@ def uboot_migrator(stdscr=None) -> bool:
             extcfg["U_BOOT_PARAMETERS"] = re.sub(r"\s*root=[^\s]+", "", params).strip()
 
         if "fdt" in label_data:
-            extcfg["U_BOOT_FDT"] = label_data["fdt"]
+            dtb = label_data["fdt"]
+            extcfg["U_BOOT_FDT"] = dtb[dtb.rfind("/") + 1 :]
         else:
             if "U_BOOT_FDT" in extcfg:
                 del extcfg["U_BOOT_FDT"]
+
+        if "fdtoverlays" in label_data:
+            dtbos = label_data["fdtoverlays"].split()
+            extcfg["U_BOOT_FDT_OVERLAYS"] = " ".join(
+                i.rsplit("/", 1)[-1] for i in dtbos
+            )
 
         extcfg = dt.encode_uboot(extcfg)
 
@@ -576,13 +583,15 @@ def uboot_migrator(stdscr=None) -> bool:
             stdscr,
             "Trigger U-Boot Update",
         )
+
+        message(["Migration complete!"], stdscr, "U-Boot-Update Migrator")
     return True
 
 
 def dt_manager(stdscr=None, cmd: list = []) -> None:
     message(["Please wait.."], stdscr, "Generating Device Tree Caches", False)
 
-    migrated = uboot_migrator()
+    migrated = uboot_migrator(stdscr)
     if not migrated:
         return
 

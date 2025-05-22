@@ -149,26 +149,43 @@ def message(
         return
 
     text = [subline for line in text for subline in line.split("\n")]
+    maxy, maxx = stdscr.getmaxyx()
+    content_height = maxy - 5  # borders + label + prompt
+    scroll = 0
 
-    maxy, _ = stdscr.getmaxyx()
-    stdscr.clear()
-    draw_border(stdscr)
-    stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-    y = 3
-    for line in text:
-        stdscr.addstr(y, 2, line)
-        y += 1
+    while True:
+        stdscr.clear()
+        draw_border(stdscr)
+        stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
 
-    if not prompt:
+        visible_lines = text[scroll : scroll + content_height]
+        for i, line in enumerate(visible_lines):
+            stdscr.addstr(3 + i, 2, line[: maxx - 4])
+
+        if not prompt:
+            stdscr.refresh()
+            return
+
+        stdscr.attron(curses.A_REVERSE)
+        stdscr.addstr(
+            maxy - 2,
+            2,
+            (" SCROLL DOWN --" if scroll + content_height < len(text) else "")
+            + " Press Enter to continue ",
+        )
+        stdscr.attroff(curses.A_REVERSE)
         stdscr.refresh()
-        return
 
-    stdscr.attron(curses.A_REVERSE)
-    stdscr.addstr(maxy - 2, 2, " Press Enter to continue ")
-    stdscr.attroff(curses.A_REVERSE)
-    stdscr.refresh()
-    while stdscr.getch() != ord("\n"):
-        pass
+        key = stdscr.getch()
+        if key in (ord("\n"), curses.KEY_ENTER):
+            break
+        elif key in (curses.KEY_DOWN, ord("s"), ord("S")):
+            if scroll + content_height < len(text):
+                scroll += 1
+        elif key in (curses.KEY_UP, ord("w"), ord("W")):
+            if scroll > 0:
+                scroll -= 1
+
     wait_clear(stdscr)
 
 
@@ -184,70 +201,64 @@ def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
                     return True
                 elif dat in ["n", "N"]:
                     return False
-            except KeyboardInterrupt:
-                pass
-            except EOFError:
+            except (KeyboardInterrupt, EOFError):
                 pass
 
         return False  # Magical fallthrough
 
-    maxy, _ = stdscr.getmaxyx()
-    stdscr.clear()
-    draw_border(stdscr)
-    stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-    y = 3
-    for line in text:
-        stdscr.addstr(y, 2, line)
-        y += 1
-
+    text = [subline for line in text for subline in line.split("\n")]
+    maxy, maxx = stdscr.getmaxyx()
+    content_height = maxy - 5  # space for borders, label, and prompt
+    scroll = 0
     sel = None
-    stdscr.attron(curses.A_REVERSE)
-    stdscr.addstr(
-        maxy - 2,
-        2,
-        " Confirm (Y/N): ",
-    )
-    stdscr.attroff(curses.A_REVERSE)
-    stdscr.refresh()
 
-    while True:  # Way too many ways to do this, cba to do it fancy
-        dat = stdscr.getch()
-        if dat == ord("\n"):
-            if sel is not None:
+    while True:
+        stdscr.clear()
+        draw_border(stdscr)
+        stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
+
+        visible_lines = text[scroll : scroll + content_height]
+        for i, line in enumerate(visible_lines):
+            stdscr.addstr(3 + i, 2, line[: maxx - 4])
+
+        stdscr.attron(curses.A_REVERSE)
+        if sel is True:
+            prompt_line = (
+                " Confirm (Y/N): Y | "
+                + (" SCROLL DOWN --" if scroll + content_height < len(text) else "")
+                + " Press enter to continue "
+            )
+        elif sel is False:
+            prompt_line = (
+                " Confirm (Y/N): N | "
+                + (" SCROLL DOWN --" if scroll + content_height < len(text) else "")
+                + " Press enter to continue "
+            )
+        else:
+            prompt_line = " Confirm (Y/N): "
+        stdscr.addstr(maxy - 2, 2, prompt_line)
+        stdscr.attroff(curses.A_REVERSE)
+
+        stdscr.refresh()
+        key = stdscr.getch()
+
+        if key == ord("\n"):
+            if sel is not None and scroll + content_height >= len(text):
                 break
-        elif (sel is not True) and dat in [ord("y"), ord("Y")]:
-            sel = True
-            stdscr.attron(curses.A_REVERSE)
-            stdscr.addstr(
-                maxy - 2,
-                2,
-                " Confirm (Y/N): Y | Press enter to continue ",
-            )
-            stdscr.attroff(curses.A_REVERSE)
-            stdscr.refresh()
-        elif (sel is not False) and dat in [ord("n"), ord("N")]:
-            sel = False
-            stdscr.attron(curses.A_REVERSE)
-            stdscr.addstr(
-                maxy - 2,
-                2,
-                " Confirm (Y/N): N | Press enter to continue ",
-            )
-            stdscr.attroff(curses.A_REVERSE)
-            stdscr.refresh()
+        elif key in (curses.KEY_DOWN, ord("s"), ord("S")):
+            if scroll + content_height < len(text):
+                scroll += 1
+        elif key in (curses.KEY_UP, ord("w"), ord("W")):
+            if scroll > 0:
+                scroll -= 1
+        elif key in [ord("y"), ord("Y")]:
+            if sel is not True:
+                sel = True
+        elif key in [ord("n"), ord("N")]:
+            if sel is not False:
+                sel = False
         elif sel is not None:
             sel = None
-
-            stdscr.attron(curses.A_REVERSE)
-            clear_line(stdscr, maxy - 2)
-            stdscr.addstr(
-                maxy - 2,
-                2,
-                " Confirm (Y/N): ",
-            )
-            stdscr.attroff(curses.A_REVERSE)
-            stdscr.border()
-            stdscr.refresh()
 
     wait_clear(stdscr)
     return sel
@@ -262,6 +273,7 @@ def selector(
 ) -> list | int:
     curses.curs_set(0)
     selected = [False] * len(items)
+    idx = 0
     if isinstance(preselect, int):
         if preselect != -1:
             selected[preselect] = True
@@ -269,16 +281,16 @@ def selector(
     else:
         for i in preselect:
             selected[i] = True
-    idx = 0
-    offset = 0
+    start_y = 3
+    h, w = stdscr.getmaxyx()
+    view_h = h - start_y - 1
+    offset = max(idx - view_h + 1, 0)
 
     def draw() -> None:
         stdscr.clear()
         h, w = stdscr.getmaxyx()
         if label:
             stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-        start_y = 3
-        view_h = h - start_y - 1
         draw_border(stdscr)
         nonlocal offset
         if idx < offset:
@@ -728,6 +740,9 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
             matchdt = []
             preselect = -1
             live, _ = dt.detect_live()
+            if live:
+                live = str(live)
+                live = live[live.rfind("/") + 1 : live.rfind(".")]
 
             for tree in dts["base"].keys():
                 base = dts["base"][tree]
@@ -747,8 +762,9 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
             res = selector(
                 basedt, stdscr, False, "Select a device Tree", preselect=preselect
             )
+
             if res is not None:
-                pass
+                pass  # Set dtb here
 
         if options[selection] == "Enable / Disable Overlays":
             maxnl = max(len(v["name"]) for v in dts["overlays"].values())
@@ -762,6 +778,12 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
 
             basedt = []
             matchdt = []
+            live = dt.identify_overlays()
+            preselect = []
+
+            for i in range(len(live)):
+                live[i] = str(live[i])
+                live[i] = live[i][live[i].rfind("/") + 1 : live[i].rfind(".")]
 
             for tree in dts["overlays"].keys():
                 base = dts["overlays"][tree]
@@ -775,9 +797,12 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                     compat_str = ""
 
                 basedt.append(f"{name.ljust(maxnl)} | {compat_str}")
+                if name in live:
+                    preselect.append(len(matchdt))
                 matchdt.append(tree)
 
-            res = selector(basedt, stdscr, True, "Select overlays")
+            res = selector(basedt, stdscr, True, "Select overlays", preselect=preselect)
+
             if res:
                 dtbos = []
                 for i in res:

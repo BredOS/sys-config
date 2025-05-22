@@ -352,15 +352,40 @@ def debug_info(stdscr=None) -> None:
     )
 
 
+def normalize_filename(filename: str, extension: str) -> str:
+    base = os.path.basename(filename)
+    name, ext = os.path.splitext(base)
+    return f"{name}.{extension}"
+
+
 def set_base_dtb(stdscr=None, dtb: str = None) -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
+    normalized_dtb = None
+    dtb_cache = dt.gencache()
+
+    if dtb is not None:
+        bases = []
+        for i in list(dtb_cache["base"].keys()):
+            bases.append(normalize_filename(i, "dtb"))
+
+        normalized_dtb = normalize_filename(dtb, "dtb")
+
+        if (normalized_dtb is None) or (normalized_dtb not in bases):
+            message(f'DTB "{dtb}" not found on system, refusing to continue.', stdscr)
+            return
 
     if grub:
         grubcfg = dt.parse_grub()
 
         if dtb is not None:
-            grubcfg["GRUB_DTB"] = dtb
+            matched_dtb = utilities.match_filename(
+                normalized_dtb, list(dtb_cache["base"].keys())
+            )
+            if matched_dtb is not None:
+                if matched_dtb.startswith("/boot/"):
+                    matched_dtb = matched_dtb[6:]
+                grubcfg["GRUB_DTB"] = matched_dtb
         else:
             if "GRUB_DTB" in grubcfg.keys():
                 del grubcfg["GRUB_DTB"]
@@ -391,12 +416,12 @@ def set_base_dtb(stdscr=None, dtb: str = None) -> None:
         extcfg = dt.parse_uboot()
 
         if dtb is not None:
-            extcfg["U_BOOT_FDT"] = dtb
+            extcfg["U_BOOT_FDT"] = normalized_dtb
         else:
             if "U_BOOT_FDT" in extcfg.keys():
                 del extcfg["U_BOOT_FDT"]
 
-        extcfg = encode_uboot(extcfg)
+        extcfg = dt.encode_uboot(extcfg)
 
         if not DRYRUN:
             utilities.elevated_file_write("/etc/default/u-boot", extcfg)
@@ -419,9 +444,27 @@ def set_base_dtb(stdscr=None, dtb: str = None) -> None:
         )
 
 
-def set_overlays(stdscr=None, dtbos: list = None) -> None:
+def set_overlays(stdscr=None, dtbos: list = []) -> None:
     grub = grub_exists()
     ext = extlinux_exists()
+
+    normalized_dtbos = []
+    dtb_cache = dt.gencache()
+
+    if dtbos:
+        overlays = []
+        for i in list(dtb_cache["overlays"].keys()):
+            bases.append(normalize_filename(i, "dtbo"))
+
+        for i in dtbos:
+            normalized_dtbos.append(normalize_filename(i, "dtbo"))
+
+        for i in normalized_dtbos:
+            if (i is None) or i not in overlays:
+                message(
+                    f'Overlay "{i}" not found on system, refusing to continue.', stdscr
+                )
+                return
 
     if grub:
         grubcfg = dt.parse_grub()
@@ -581,7 +624,7 @@ def uboot_migrator(stdscr=None) -> bool:
         else:
             message(
                 [
-                    "The u-boot config would have been updated with the following:",
+                    "The U-Boot config would have been updated with the following:",
                     "",
                     extcfg,
                 ],
@@ -764,7 +807,7 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
             )
 
             if res is not None:
-                pass  # Set dtb here
+                set_base_dtb(stdscr, matchdt[res])
 
         if options[selection] == "Enable / Disable Overlays":
             maxnl = max(len(v["name"]) for v in dts["overlays"].values())

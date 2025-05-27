@@ -4,6 +4,7 @@ import re
 import os
 import sys
 import time
+import shlex
 import curses
 import argparse
 import textwrap
@@ -19,16 +20,21 @@ LOG_FILE = None
 DRYRUN = False
 ROOT_MODE = False
 
+stdscr = None
+
 # --------------- RUNNER ----------------
 
+elevator = utilities.Elevator()
 
-def cmdr(cmd: list, stdscr=None, label: str = None) -> str:
+
+def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
+    global stdscr
     output = []
     if DRYRUN:
         if stdscr is not None:
             stdscr.clear()
             stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-            draw_border(stdscr)
+            draw_border()
         output = "DRYRUN: " + " ".join(cmd)
         if stdscr is not None:
             stdscr.addstr(3, 2, output)
@@ -37,13 +43,34 @@ def cmdr(cmd: list, stdscr=None, label: str = None) -> str:
             print(output)
         return output
 
-    with subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True,
-        bufsize=1,
-    ) as proc:
+    proc_cm = None
+    if elevate and not ROOT_MODE:
+        auth = False
+        if not elevator.spawned:
+            auth = True
+            stdscr.clear()
+            stdscr.refresh()
+            curses.nocbreak()
+            stdscr.keypad(False)
+            curses.echo()
+            curses.endwin()
+            print("Authenticating..")
+        proc_cm = elevator.run(" ".join(shlex.quote(part) for part in cmd))
+        if auth:
+            stdscr = curses.initscr()
+            curses.noecho()
+            curses.cbreak()
+            stdscr.keypad(True)
+    else:
+        proc_cm = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1,
+        )
+
+    with proc_cm as proc:
         try:
             y = 3
             ym = 0
@@ -51,20 +78,22 @@ def cmdr(cmd: list, stdscr=None, label: str = None) -> str:
             if stdscr is not None:
                 stdscr.clear()
                 stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-                draw_border(stdscr)
+                draw_border()
                 ym, _ = stdscr.getmaxyx()
                 limit = int(ym) - 2
                 stdscr.refresh()
             for line in proc.stdout:
+                if "[[EOC]]" in line:
+                    break
                 if stdscr is not None:
                     if y < limit:
                         stdscr.addstr(y if y <= limit else limit, 2, line)
                     else:
                         for i in range(3, limit):
-                            clear_line(stdscr, i)
+                            clear_line(i)
                             stdscr.addstr(i, 2, output[y - limit - 3 + i][:-1])
                     y += 1
-                    draw_border(stdscr)
+                    draw_border()
                     stdscr.refresh()
                 else:
                     print(line, end="")
@@ -82,11 +111,10 @@ def cmdr(cmd: list, stdscr=None, label: str = None) -> str:
 
 def cli_runner(cmd: str, elevate: bool = False) -> None:
     global LOG_FILE, ROOT_MODE
-
     if elevate and not ROOT_MODE:
         cmd = ["pkexec"] + cmd
 
-    result = cmdr(cmd)
+    result = cmdr(cmd, None, elevate)
 
     if LOG_FILE is not None and result != -1:
         with open(LOG_FILE, "a") as f:
@@ -96,19 +124,17 @@ def cli_runner(cmd: str, elevate: bool = False) -> None:
     if result == -1:
         print("\nABORTED")
     else:
-        print("\nOK")
+        print(f"\nOK")
 
 
 def tui_runner(
-    stdscr, label: str, cmd: list, elevate: bool = False, prompt: bool = True
+    label: str, cmd: list, elevate: bool = False, prompt: bool = True
 ) -> None:
     global LOG_FILE, ROOT_MODE
 
     stdscr.clear()
-    draw_border(stdscr)
+    draw_border()
     stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-    if elevate and not ROOT_MODE:
-        cmd = ["pkexec"] + cmd
     stdscr.addstr(
         4,
         2,
@@ -116,7 +142,7 @@ def tui_runner(
     )
     stdscr.refresh()
 
-    output = cmdr(cmd, stdscr, label)
+    output = cmdr(cmd, elevate, label)
 
     if LOG_FILE is not None and output != -1:
         with open(LOG_FILE, "a") as f:
@@ -137,12 +163,10 @@ def tui_runner(
     stdscr.refresh()
     while stdscr.getch() != ord("\n"):
         pass
-    wait_clear(stdscr)
+    wait_clear()
 
 
-def message(
-    text: list, stdscr=None, label: str = APP_NAME, prompt: bool = True
-) -> None:
+def message(text: list, label: str = APP_NAME, prompt: bool = True) -> None:
     if stdscr is None:
         for line in text:
             print(line)
@@ -155,7 +179,7 @@ def message(
 
     while True:
         stdscr.clear()
-        draw_border(stdscr)
+        draw_border()
         stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
 
         visible_lines = text[scroll : scroll + content_height]
@@ -186,10 +210,10 @@ def message(
             if scroll > 0:
                 scroll -= 1
 
-    wait_clear(stdscr)
+    wait_clear()
 
 
-def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
+def confirm(text: list, label: str = APP_NAME) -> None:
     if stdscr is None:
         for line in text:
             print(line)
@@ -214,7 +238,7 @@ def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
 
     while True:
         stdscr.clear()
-        draw_border(stdscr)
+        draw_border()
         stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
 
         visible_lines = text[scroll : scroll + content_height]
@@ -260,13 +284,12 @@ def confirm(text: list, stdscr=None, label: str = APP_NAME) -> None:
         elif sel is not None:
             sel = None
 
-    wait_clear(stdscr)
+    wait_clear()
     return sel
 
 
 def selector(
     items: list,
-    stdscr,
     multi: bool,
     label: str | None = None,
     preselect: int | list = -1,
@@ -291,7 +314,7 @@ def selector(
         h, w = stdscr.getmaxyx()
         if label:
             stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-        draw_border(stdscr)
+        draw_border()
         nonlocal offset
         if idx < offset:
             offset = idx
@@ -332,24 +355,22 @@ def selector(
             return [] if multi else None
 
 
-def runner(
-    cmd: list, elevate=True, stdscr=None, label: str = APP_NAME, prompt: bool = True
-) -> None:
+def runner(cmd: list, elevate=True, label: str = APP_NAME, prompt: bool = True) -> None:
     if stdscr is None:
         cli_runner(cmd, elevate=elevate)
     else:
-        tui_runner(stdscr, label, cmd, elevate=elevate, prompt=prompt)
+        tui_runner(label, cmd, elevate=elevate, prompt=prompt)
 
 
-def debug_info(stdscr=None) -> None:
+def debug_info() -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
     efi = dt.booted_with_edk()
     message(
         [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}"],
-        stdscr,
         "Debug Information",
     )
+    runner(["ping", "-c", "5", "feline.gr"], True, "Test1")
 
 
 def normalize_filename(filename: str, extension: str) -> str:
@@ -358,7 +379,7 @@ def normalize_filename(filename: str, extension: str) -> str:
     return f"{name}.{extension}"
 
 
-def set_base_dtb(stdscr=None, dtb: str = None) -> None:
+def set_base_dtb(dtb: str = None) -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
     normalized_dtb = None
@@ -372,7 +393,7 @@ def set_base_dtb(stdscr=None, dtb: str = None) -> None:
         normalized_dtb = normalize_filename(dtb, "dtb")
 
         if (normalized_dtb is None) or (normalized_dtb not in bases):
-            message(f'DTB "{dtb}" not found on system, refusing to continue.', stdscr)
+            message(f'DTB "{dtb}" not found on system, refusing to continue.')
             return
 
     if grub:
@@ -401,14 +422,12 @@ def set_base_dtb(stdscr=None, dtb: str = None) -> None:
                     "",
                     grubcfg,
                 ],
-                stdscr,
                 "DRYRUN Simulated Output",
             )
 
         runner(
             ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
             True,
-            stdscr,
             "Update GRUB Configuration",
         )
 
@@ -432,19 +451,17 @@ def set_base_dtb(stdscr=None, dtb: str = None) -> None:
                     "",
                     extcfg,
                 ],
-                stdscr,
                 "DRYRUN Simulated Output",
             )
 
         runner(
             ["u-boot-update"],
             True,
-            stdscr,
             "Trigger U-Boot Update",
         )
 
 
-def set_overlays(stdscr=None, dtbos: list = []) -> None:
+def set_overlays(dtbos: list = []) -> None:
     grub = grub_exists()
     ext = extlinux_exists()
 
@@ -461,9 +478,7 @@ def set_overlays(stdscr=None, dtbos: list = []) -> None:
 
         for i in normalized_dtbos:
             if (i is None) or i not in overlays:
-                message(
-                    f'Overlay "{i}" not found on system, refusing to continue.', stdscr
-                )
+                message(f'Overlay "{i}" not found on system, refusing to continue.')
                 return
 
     if grub:
@@ -482,14 +497,12 @@ def set_overlays(stdscr=None, dtbos: list = []) -> None:
                     "",
                     grubcfg,
                 ],
-                stdscr,
                 "DRYRUN Simulated Output",
             )
 
         runner(
             ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
             True,
-            stdscr,
             "Update GRUB Configuration",
         )
 
@@ -513,14 +526,12 @@ def set_overlays(stdscr=None, dtbos: list = []) -> None:
                     "",
                     extcfg,
                 ],
-                stdscr,
                 "DRYRUN Simulated Output",
             )
 
         runner(
             ["u-boot-update"],
             True,
-            stdscr,
             "Trigger U-Boot Update",
         )
 
@@ -528,35 +539,35 @@ def set_overlays(stdscr=None, dtbos: list = []) -> None:
 # -------- ACTIVATABLE COMMANDS ---------
 
 
-def filesystem_maint(stdscr=None) -> None:
+def filesystem_maint() -> None:
     cmd = [
         "sh",
         "-c",
         'findmnt -n -o FSTYPE / | grep -q btrfs && echo "Detected BTRFS root, performing balance operation." && btrfs balance start -dusage=20 -musage=20 /',
     ]
-    runner(cmd, True, stdscr, "Filesystem Maintenance")
+    runner(cmd, True, "Filesystem Maintenance")
 
 
-def filesystem_check(stdscr=None) -> None:
+def filesystem_check() -> None:
     cmd = [
         "sh",
         "-c",
         'findmnt -n -o FSTYPE / | grep -q btrfs && echo "Detected BTRFS root, performing scrub operation." && btrfs scrub start -Bd /',
     ]
     elevate = True
-    runner(cmd, True, stdscr, "Filesystem Check")
+    runner(cmd, True, "Filesystem Check")
 
 
-def filesystem_resize(stdscr=None) -> None:
+def filesystem_resize() -> None:
     cmd = [
         "sh",
         "-c",
         'systemctl enable resizefs && echo "The filesystem will be resized on next reboot!"',
     ]
-    runner(cmd, True, stdscr, "Filesystem Resize")
+    runner(cmd, True, "Filesystem Resize")
 
 
-def uboot_migrator(stdscr=None) -> bool:
+def uboot_migrator() -> bool:
     if (not dt.extlinux_exists()) or dt.booted_with_edk():
         return True  # UEFI system
 
@@ -569,7 +580,6 @@ def uboot_migrator(stdscr=None) -> bool:
                 "Please make sure a system backup is available.",
                 "Press Y to continue, N to abort.",
             ],
-            stdscr,
             "U-Boot-Update Migrator",
         )
         if not res:
@@ -582,7 +592,6 @@ def uboot_migrator(stdscr=None) -> bool:
                 '"pacman -Sy && pacman -S --noconfirm u-boot-update',
             ],
             True,
-            stdscr,
             "Installing U-Boot Updater",
             prompt=False,
         )
@@ -628,31 +637,29 @@ def uboot_migrator(stdscr=None) -> bool:
                     "",
                     extcfg,
                 ],
-                stdscr,
                 "DRYRUN Simulated Output",
             )
 
         runner(
             ["u-boot-update"],
             True,
-            stdscr,
             "Trigger U-Boot Update",
         )
 
-        message(["Migration complete!"], stdscr, "U-Boot-Update Migrator")
+        message(["Migration complete!"], "U-Boot-Update Migrator")
     return True
 
 
-def dt_manager(stdscr=None, cmd: list = []) -> None:
-    message(["Please wait.."], stdscr, "Generating Device Tree Caches", False)
+def dt_manager(cmd: list = []) -> None:
+    message(["Please wait.."], "Generating Device Tree Caches", False)
 
-    migrated = uboot_migrator(stdscr)
+    migrated = uboot_migrator()
     if not migrated:
         return
 
     dts = dt.gencache()
     if not dts["base"]:
-        message(["No Device Trees were detected!"], stdscr, "Device Tree Manager", True)
+        message(["No Device Trees were detected!"], "Device Tree Manager", True)
         return
 
     if stdscr is None:
@@ -750,7 +757,6 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
             "",
             "Only continue if you know EXACTLY what you're doing.",
         ],
-        stdscr,
         "Device Tree Management",
     )
 
@@ -765,7 +771,7 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
     ]
 
     while True:
-        selection = draw_menu(stdscr, "Device Tree Manager", options)
+        selection = draw_menu("Device Tree Manager", options)
         if selection is None or options[selection] == "Main Menu":
             return
 
@@ -802,12 +808,10 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                     preselect = len(matchdt)
                 matchdt.append(tree)
 
-            res = selector(
-                basedt, stdscr, False, "Select a device Tree", preselect=preselect
-            )
+            res = selector(basedt, False, "Select a device Tree", preselect=preselect)
 
             if res is not None:
-                set_base_dtb(stdscr, matchdt[res])
+                set_base_dtb(matchdt[res])
 
         if options[selection] == "Enable / Disable Overlays":
             maxnl = max(len(v["name"]) for v in dts["overlays"].values())
@@ -844,7 +848,7 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
                     preselect.append(len(matchdt))
                 matchdt.append(tree)
 
-            res = selector(basedt, stdscr, True, "Select overlays", preselect=preselect)
+            res = selector(basedt, True, "Select overlays", preselect=preselect)
 
             if res:
                 dtbos = []
@@ -855,7 +859,7 @@ def dt_manager(stdscr=None, cmd: list = []) -> None:
             pass
 
 
-def hack_pipewire(stdscr=None) -> None:
+def hack_pipewire() -> None:
     res = False
     service_path = Path.home() / ".config/systemd/user/pipewire.service"
     service_content = """[Unit]
@@ -908,21 +912,20 @@ WantedBy=default.target
             "Pipewire CPU fix " + ("applied" if res else "removed") + ".",
             "Relog or Reboot to apply.",
         ],
-        stdscr,
         "Pipewire CPU fix",
     )
 
 
-def hack_wol(stdscr=None) -> None:
+def hack_wol() -> None:
     cmd = [
         "bash",
         "-c",
         'pacman -Qi bredos-wol &>/dev/null && echo "Removing.." && pacman -R --noconfirm bredos-wol || { echo "Installing.."; pacman -Sy; pacman -S --noconfirm bredos-wol; }',
     ]
-    runner(cmd, True, stdscr, "Wake On Lan")
+    runner(cmd, True, "Wake On Lan")
 
 
-def pacman_integrity(stdscr=None) -> None:
+def pacman_integrity() -> None:
     cmd = [
         "sh",
         "-c",
@@ -947,10 +950,10 @@ END {
 }
 '""",
     ]
-    runner(cmd, False, stdscr, "Check Packages Integrity")
+    runner(cmd, False, "Check Packages Integrity")
 
 
-def install_recommends(stdscr=None) -> None:
+def install_recommends() -> None:
     cmd = [
         "sh",
         "-c",
@@ -967,10 +970,10 @@ def install_recommends(stdscr=None) -> None:
         + " loupe",
     ]
     elevate = True
-    runner(cmd, True, stdscr, "Install Recommended Packages")
+    runner(cmd, True, "Install Recommended Packages")
 
 
-def install_docker(stdscr=None) -> None:
+def install_docker() -> None:
     cmd = [
         "sh",
         "-c",
@@ -985,30 +988,30 @@ def install_docker(stdscr=None) -> None:
         + " && systemctl enable --now docker",
     ]
     elevate = True
-    runner(cmd, True, stdscr, "Install Docker")
+    runner(cmd, True, "Install Docker")
 
 
-def install_steam_any(stdscr=None) -> None:
+def install_steam_any() -> None:
     cmd = [
         "sh",
         "-c",
         "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-any",
     ]
     elevate = True
-    runner(cmd, True, stdscr, "Install Steam (Any)")
+    runner(cmd, True, "Install Steam (Any)")
 
 
-def install_steam_panfork(stdscr=None) -> None:
+def install_steam_panfork() -> None:
     cmd = [
         "sh",
         "-c",
         "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-rk3588",
     ]
     elevate = True
-    runner(cmd, True, stdscr, "Install Steam (RK3588, Panfork graphics)")
+    runner(cmd, True, "Install Steam (RK3588, Panfork graphics)")
 
 
-def install_development(stdscr=None) -> None:
+def install_development() -> None:
     cmd = [
         "sh",
         "-c",
@@ -1028,39 +1031,39 @@ def install_development(stdscr=None) -> None:
         + " bredos-tools",
     ]
     elevate = True
-    runner(cmd, True, stdscr, "Install BredOS Development Packages")
+    runner(cmd, True, "Install BredOS Development Packages")
 
 
-def unlock_pacman(stdscr=None) -> None:
+def unlock_pacman() -> None:
     cmd = [
         "bash",
         "-c",
         '[ -f /var/lib/pacman/db.lck ] && ! pgrep -x pacman >/dev/null && { sudo rm -f /var/lib/pacman/db.lck && echo "Pacman DB lock removed."; } || echo "No action needed."',
     ]
     elevate = True
-    runner(cmd, True, stdscr, "Unlock Pacman Database")
+    runner(cmd, True, "Unlock Pacman Database")
 
 
-def autoremove(stdscr=None) -> None:
+def autoremove() -> None:
     cmd = [
         "bash",
         "-c",
         "while pacman -Qdtq >/dev/null 2>&1; do sudo pacman -Rns --noconfirm $(pacman -Qdtq); done",
     ]
     elevate = True
-    runner(cmd, True, stdscr, "Remove Unused Packages")
+    runner(cmd, True, "Remove Unused Packages")
 
 
 # -------------- TUI LOGIC --------------
 
 
-def draw_border(stdscr) -> None:
+def draw_border() -> None:
     stdscr.attron(curses.color_pair(1))
     stdscr.border()
     stdscr.attroff(curses.color_pair(1))
 
 
-def wait_clear(stdscr, timeout: float = 0.2) -> None:
+def wait_clear(timeout: float = 0.2) -> None:
     stdscr.nodelay(True)
     keys_held = True
 
@@ -1080,22 +1083,20 @@ def wait_clear(stdscr, timeout: float = 0.2) -> None:
     stdscr.nodelay(False)
 
 
-def clear_line(win, y) -> None:
-    win.move(y, 0)
-    win.clrtoeol()
+def clear_line(y) -> None:
+    stdscr.move(y, 0)
+    stdscr.clrtoeol()
 
 
-def draw_list(
-    stdscr, title: str, options: list, selected: int, special: bool = False
-) -> None:
+def draw_list(title: str, options: list, selected: int, special: bool = False) -> None:
     stdscr.addstr(1, 2, title, curses.A_BOLD | curses.A_UNDERLINE)
 
     h, w = stdscr.getmaxyx()
     for idx, option in enumerate(options):
         x = 4
         y = 3 + idx
-        clear_line(stdscr, y)
-        draw_border(stdscr)
+        clear_line(y)
+        draw_border()
         if idx == selected:
             if special:
                 stdscr.addstr(y, x, "[< " + option + " >]")
@@ -1109,16 +1110,15 @@ def draw_list(
     stdscr.refresh()
 
 
-def draw_menu(stdscr, title: str, options: list):
+def draw_menu(title: str, options: list):
     curses.curs_set(0)
     current_row = 0
-    wait_clear(stdscr)
+    wait_clear()
     stdscr.clear()
 
     while True:
         try:
             draw_list(
-                stdscr,
                 title + (" (DRYRUN)" if DRYRUN else ""),
                 options,
                 selected=current_row,
@@ -1136,26 +1136,26 @@ def draw_menu(stdscr, title: str, options: list):
                 else:
                     current_row = 0
             elif key in (curses.KEY_ENTER, ord("\n")):
-                draw_list(stdscr, title, options, selected=current_row)
+                draw_list(title, options, selected=current_row)
                 time.sleep(0.08)
-                draw_list(stdscr, title, options, selected=current_row, special=True)
+                draw_list(title, options, selected=current_row, special=True)
                 time.sleep(0.08)
-                draw_list(stdscr, title, options, selected=current_row)
+                draw_list(title, options, selected=current_row)
                 time.sleep(0.08)
-                draw_list(stdscr, title, options, selected=current_row, special=True)
+                draw_list(title, options, selected=current_row, special=True)
                 time.sleep(0.08)
-                draw_list(stdscr, title, options, selected=current_row)
+                draw_list(title, options, selected=current_row)
                 time.sleep(0.08)
                 return current_row
             elif key in (ord("q"), 27):  # ESC or 'q'
                 return None
-            wait_clear(stdscr, 0.065)
+            wait_clear(0.065)
         except KeyboardInterrupt:
-            wait_clear(stdscr)
+            wait_clear()
             stdscr.clear()
 
 
-def sys_health_menu(stdscr):
+def sys_health_menu():
     options = [
         "Perform Filesystem Maintenance",
         "Check & Repair Filesystem",
@@ -1166,41 +1166,41 @@ def sys_health_menu(stdscr):
     ]
 
     while True:
-        selection = draw_menu(stdscr, "Filesystem", options)
+        selection = draw_menu("Filesystem", options)
         if selection is None or options[selection] == "Main Menu":
             return
 
         stdscr.clear()
         stdscr.refresh()
         if options[selection] == "Perform Filesystem Maintenance":
-            filesystem_maint(stdscr)
+            filesystem_maint()
         if options[selection] == "Check & Repair Filesystem":
-            filesystem_check(stdscr)
+            filesystem_check()
         if options[selection] == "Expand Fileystem":
-            filesystem_resize(stdscr)
+            filesystem_resize()
         if options[selection] == "Check Packages Integrity":
-            pacman_integrity(stdscr)
+            pacman_integrity()
         if options[selection] == "Manage Device Trees":
-            dt_manager(stdscr)
+            dt_manager()
 
 
-def sys_tweaks_menu(stdscr) -> None:
+def sys_tweaks_menu() -> None:
     options = ["Pipewire CPU fix", "Wake On Lan", "Main Menu"]
 
     while True:
-        selection = draw_menu(stdscr, "System Tweaks", options)
+        selection = draw_menu("System Tweaks", options)
         if selection is None or options[selection] == "Main Menu":
             return
 
         stdscr.clear()
         stdscr.refresh()
         if options[selection] == "Pipewire CPU fix":
-            hack_pipewire(stdscr)
+            hack_pipewire()
         if options[selection] == "Wake On Lan":
-            hack_wol(stdscr)
+            hack_wol()
 
 
-def packages_menu(stdscr) -> None:
+def packages_menu() -> None:
     options = [
         "Install Recommended Desktop Packages",
         "Install Docker",
@@ -1214,56 +1214,75 @@ def packages_menu(stdscr) -> None:
     ]
 
     while True:
-        selection = draw_menu(stdscr, "Packages", options)
+        selection = draw_menu("Packages", options)
         if selection is None or options[selection] == "Main Menu":
             return
 
         stdscr.clear()
         stdscr.refresh()
         if options[selection] == "Install Recommended Desktop Packages":
-            install_recommends(stdscr)
+            install_recommends()
         if options[selection] == "Install Docker":
-            install_docker(stdscr)
+            install_docker()
         if options[selection] == "Install Steam (Any)":
-            install_steam_any(stdscr)
+            install_steam_any()
         if options[selection] == "Install Steam (Panfork graphics)":
-            install_steam_panfork(stdscr)
+            install_steam_panfork()
         if options[selection] == "Install BredOS Development Packages":
-            install_development(stdscr)
+            install_development()
         if options[selection] == "Unlock Pacman Database":
-            unlock_pacman(stdscr)
+            unlock_pacman()
         if options[selection] == "Autoremove Unused packages":
-            autoremove(stdscr)
+            autoremove()
         if options[selection] == "Check Packages Integrity":
-            pacman_integrity(stdscr)
+            pacman_integrity()
 
 
-def main_menu(stdscr):
+def main_menu():
     curses.start_color()
     curses.use_default_colors()
-    curses.init_pair(1, 166, -1)  # Color
+    try:
+        curses.init_pair(1, 166, -1)
+    except:
+        try:
+            curses.init_pair(1, curses.COLOR_RED, -1)
+        except:
+            pass
     stdscr.bkgd(" ", curses.color_pair(1))
     stdscr.clear()
 
     options = ["System Upkeep", "System Tweaks", "Packages", "Debug", "Exit"]
 
     while True:
-        selection = draw_menu(stdscr, APP_NAME, options)
+        selection = draw_menu(APP_NAME, options)
         if selection is None or options[selection] == "Exit":
             return
 
         if options[selection] == "System Upkeep":
-            sys_health_menu(stdscr)
+            sys_health_menu()
         if options[selection] == "System Tweaks":
-            sys_tweaks_menu(stdscr)
+            sys_tweaks_menu()
         if options[selection] == "Packages":
-            packages_menu(stdscr)
+            packages_menu()
         if options[selection] == "Debug":
-            debug_info(stdscr)
+            debug_info()
 
 
 def tui():
-    curses.wrapper(main_menu)
+    global stdscr
+    stdscr = curses.initscr()
+    curses.noecho()
+    curses.cbreak()
+    stdscr.keypad(True)
+
+    try:
+        main_menu()
+    finally:
+        stdscr.clear()
+        stdscr.keypad(False)
+        curses.echo()
+        curses.nocbreak()
+        curses.endwin()
 
 
 # -------------- CLI LOGIC --------------

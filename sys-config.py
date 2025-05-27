@@ -157,7 +157,9 @@ def tui_runner(
 
     stdscr.attron(curses.A_REVERSE)
     stdscr.addstr(
-        maxy - 2, 2, ("ABORTED" if output == -1 else "OK") + " - Press Enter to return"
+        maxy - 2,
+        2,
+        " " + ("ABORTED" if output == -1 else "OK") + " - Press Enter to return ",
     )
     stdscr.attroff(curses.A_REVERSE)
     stdscr.refresh()
@@ -370,7 +372,6 @@ def debug_info() -> None:
         [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}"],
         "Debug Information",
     )
-    runner(["ping", "-c", "5", "feline.gr"], True, "Test1")
 
 
 def normalize_filename(filename: str, extension: str) -> str:
@@ -545,26 +546,55 @@ def filesystem_maint() -> None:
         "-c",
         'findmnt -n -o FSTYPE / | grep -q btrfs && echo "Detected BTRFS root, performing balance operation." && btrfs balance start -dusage=20 -musage=20 /',
     ]
-    runner(cmd, True, "Filesystem Maintenance")
+    if confirm(
+        [
+            "This will perform a BTRFS balance operation.",
+            "",
+            "Authentication will be required, do you wish to continue?",
+        ],
+        "Filesystem Maintenance",
+    ):
+        runner(cmd, True, "Filesystem Maintenance")
 
 
 def filesystem_check() -> None:
     cmd = [
         "sh",
         "-c",
-        'findmnt -n -o FSTYPE / | grep -q btrfs && echo "Detected BTRFS root, performing scrub operation." && btrfs scrub start -Bd /',
+        'findmnt -n -o FSTYPE / | grep -q btrfs && echo "Detected BTRFS root, performing scrub." && btrfs scrub start -Bd /',
     ]
-    elevate = True
-    runner(cmd, True, "Filesystem Check")
+    if confirm(
+        [
+            "This will perform a full BTRFS scrub operation.",
+            "Cancelling is not adviced.",
+            "",
+            "Save your work before continuing.",
+            "",
+            "ARE YOU SURE YOU WANT TO CONTINUE?",
+        ],
+        "Filesystem Check",
+    ):
+        runner(cmd, True, "Filesystem Check")
 
 
 def filesystem_resize() -> None:
     cmd = [
         "sh",
         "-c",
-        'systemctl enable resizefs && echo "The filesystem will be resized on next reboot!"',
+        'systemctl enable resizefs && echo "The filesystem will be expanded upon the next reboot!"',
     ]
-    runner(cmd, True, "Filesystem Resize")
+    if confirm(
+        [
+            "This enables a service present and used upon the first boot of the device.",
+            "This is a safe operation.",
+            "",
+            "Despite this I have the undying urge to pester you. Are you a loyal bred?",
+        ],
+        "Pancake spirit",
+    ):
+        runner(cmd, True, "Filesystem Resize")
+    else:
+        message(["This incident will be reported to Santa Claus."], "Pancake spirit")
 
 
 def uboot_migrator() -> bool:
@@ -899,20 +929,20 @@ WantedBy=default.target
 """
 
     if service_path.exists():
-        if not DRYRUN:
+        if confirm(["Remove the hack?"], "Pipewire CPU Fix") and not DRYRUN:
             service_path.unlink()
     else:
-        if not DRYRUN:
+        if confirm(["Apply the hack?"], "Pipewire CPU Fix") and not DRYRUN:
             service_path.parent.mkdir(parents=True, exist_ok=True)
             service_path.write_text(service_content)
         res = True
 
     message(
         [
-            "Pipewire CPU fix " + ("applied" if res else "removed") + ".",
+            "Pipewire CPU Fix " + ("applied" if res else "removed") + ".",
             "Relog or Reboot to apply.",
         ],
-        "Pipewire CPU fix",
+        "Pipewire CPU Fix",
     )
 
 
@@ -922,7 +952,8 @@ def hack_wol() -> None:
         "-c",
         'pacman -Qi bredos-wol &>/dev/null && echo "Removing.." && pacman -R --noconfirm bredos-wol || { echo "Installing.."; pacman -Sy; pacman -S --noconfirm bredos-wol; }',
     ]
-    runner(cmd, True, "Wake On Lan")
+    if confirm(["Toggle the Wake-On-Lan hack?"], "Wake On Lan"):
+        runner(cmd, True, "Wake On Lan")
 
 
 def pacman_integrity() -> None:
@@ -969,8 +1000,26 @@ def install_recommends() -> None:
         + " evince"
         + " loupe",
     ]
-    elevate = True
-    runner(cmd, True, "Install Recommended Packages")
+    if confirm(
+        [
+            "This will install the following packages:",
+            "",
+            " - webcord-bin",
+            " - ayugram-desktop",
+            " - thunderbird",
+            " - gnome-disk-utility",
+            " - mpv",
+            " - libreoffice-fresh",
+            " - timeshift",
+            " - proton-run",
+            " - evince",
+            " - loupe",
+            "",
+            "Are you sure you wish to continue?",
+        ],
+        "Install Recommended Packages",
+    ):
+        runner(cmd, True, "Install Recommended Packages")
 
 
 def install_docker() -> None:
@@ -987,8 +1036,21 @@ def install_docker() -> None:
         + " && systemctl mask systemd-networkd-wait-online"
         + " && systemctl enable --now docker",
     ]
-    elevate = True
-    runner(cmd, True, "Install Docker")
+    if confirm(
+        [
+            "This will install AND ENABLE the following packages:",
+            "",
+            " - docker",
+            " - docker-buildx",
+            " - docker-compose",
+            " - docker-compose",
+            " - pigz",
+            "",
+            "Are you sure you wish to continue?",
+        ],
+        "Install Docker",
+    ):
+        runner(cmd, True, "Install Docker")
 
 
 def install_steam_any() -> None:
@@ -997,8 +1059,15 @@ def install_steam_any() -> None:
         "-c",
         "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-any",
     ]
-    elevate = True
-    runner(cmd, True, "Install Steam (Any)")
+    if confirm(
+        [
+            "This will install Steam for ARM, for mainline mesa systems.",
+            "",
+            "Should only be used on RK3588 if you've switched to Panthor graphics.",
+            "Are you sure you wish to continue?",
+        ]
+    ):
+        runner(cmd, True, "Install Steam (Any)")
 
 
 def install_steam_panfork() -> None:
@@ -1007,8 +1076,15 @@ def install_steam_panfork() -> None:
         "-c",
         "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-rk3588",
     ]
-    elevate = True
-    runner(cmd, True, "Install Steam (RK3588, Panfork graphics)")
+    if confirm(
+        [
+            "This will install Steam for ARM, suitable for RK3588 systems with Panfork graphics.",
+            "",
+            "Panfork is the default BredOS video driver.",
+            "Are you sure you wish to continue?",
+        ]
+    ):
+        runner(cmd, True, "Install Steam (RK3588, Panfork graphics)")
 
 
 def install_development() -> None:
@@ -1030,8 +1106,29 @@ def install_development() -> None:
         + " vboot-utils"
         + " bredos-tools",
     ]
-    elevate = True
-    runner(cmd, True, "Install BredOS Development Packages")
+    if confirm(
+        [
+            "This will install the following packages:",
+            "",
+            " - python-prettytable",
+            " - grub",
+            " - parted",
+            " - gptfdisk",
+            " - edk2-rk3588-devel",
+            " - dtc",
+            " - xmlto",
+            " - docbook-xsl",
+            " - kmod",
+            " - bc",
+            " - uboot-tools",
+            " - vboot-utils",
+            " - bredos-tools",
+            "",
+            "Are you sure you wish to continue?",
+        ],
+        "Install BredOS Development Packages",
+    ):
+        runner(cmd, True, "Install BredOS Development Packages")
 
 
 def unlock_pacman() -> None:
@@ -1051,7 +1148,18 @@ def autoremove() -> None:
         "while pacman -Qdtq >/dev/null 2>&1; do sudo pacman -Rns --noconfirm $(pacman -Qdtq); done",
     ]
     elevate = True
-    runner(cmd, True, "Remove Unused Packages")
+    if confirm(
+        [
+            "This will REMOVE ALL PACKAGES that aren't:",
+            " - Depended upon by another package",
+            "  AND",
+            " - Haven't been installed manually.",
+            "",
+            "Are you SURE you want this?",
+        ],
+        "Remove Unused Packages",
+    ):
+        runner(cmd, True, "Remove Unused Packages")
 
 
 # -------------- TUI LOGIC --------------

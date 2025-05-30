@@ -6,6 +6,7 @@ import sys
 import time
 import shlex
 import curses
+import shutil
 import argparse
 import textwrap
 import subprocess
@@ -381,6 +382,42 @@ def normalize_filename(filename: str, extension: str) -> str:
     return f"{name}.{extension}"
 
 
+def cp(src_file, dst_dir, overwrite=True) -> None:
+    """
+    Copies `src_file` into `dst_dir`, creating directories if needed.
+
+    Parameters:
+    - src_file (str or Path): Path to the source file.
+    - dst_dir (str or Path): Path to the destination directory.
+    - overwrite (bool): If False, raises an error if file exists.
+
+    Raises:
+    - FileNotFoundError: If src_file does not exist.
+    - FileExistsError: If destination file exists and overwrite is False.
+    - OSError: For other I/O errors.
+    """
+    src_file = Path(src_file)
+    dst_dir = Path(dst_dir)
+
+    if not src_file.is_file():
+        raise FileNotFoundError(f"Source file does not exist: {src_file}")
+
+    try:
+        dst_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        raise OSError(f"Failed to create destination directory: {dst_dir}") from e
+
+    dst_file = dst_dir / src_file.name
+
+    if dst_file.exists() and not overwrite:
+        raise FileExistsError(f"Destination file already exists: {dst_file}")
+
+    try:
+        shutil.copy2(src_file, dst_file)
+    except Exception as e:
+        raise OSError(f"Failed to copy file: {src_file} → {dst_file}") from e
+
+
 def set_base_dtb(dtb: str = None) -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
@@ -490,51 +527,56 @@ def set_overlays(dtbos: list = []) -> None:
     message(["Dtbos:"] + dtbos + ["", "Normalized:"] + normalized_dtbos, "test")
 
     if grub:
-        if dt.uefi_overriden() or confirm(
-            [
-                "IMPORTANT NOTICE --!!-- IMPORTART NOTICE",
-                "",
-                "Upon the next reboot UEFI setup is required!",
-                "",
-                "To enter into UEFI setup you can either:",
-                " - Hold down ESC",
-                "  or",
-                ' - Select "Enter UEFI Setup" from within the GRUB Bootloader',
-                "",
-                "In the UEFI setup menu you need to select:",
-                "",
-                "Device Manager > Rockchip Platform Configuration > ACPI / Device Tree",
-                "",
-                "And do the following:",
-                "",
-                '    - Set "Config Table Mode" to "Device Tree"',
-                '    - Change "Support DTB override & overlays" to "Enabled"',
-            ],
-            "UEFI Setup required!",
-        ):
-            grubcfg = dt.parse_grub()
+        if not dt.uefi_overriden():
+            if confirm(
+                [
+                    "IMPORTANT NOTICE --!!-- IMPORTART NOTICE",
+                    "",
+                    "Upon the next reboot UEFI setup is required!",
+                    "",
+                    "To enter into UEFI setup you can either:",
+                    " - Hold down ESC",
+                    "  or",
+                    ' - Select "Enter UEFI Setup" from within the GRUB Bootloader',
+                    "",
+                    "In the UEFI setup menu you need to select:",
+                    "",
+                    "Device Manager > Rockchip Platform Configuration > ACPI / Device Tree",
+                    "",
+                    "And do the following:",
+                    "",
+                    '    - Set "Config Table Mode" to "Device Tree"',
+                    '    - Change "Support DTB override & overlays" to "Enabled"',
+                ],
+                "UEFI Setup required!",
+            ):
+                grubcfg = dt.parse_grub()
 
-            # do lomgicc
+                # Disable dtb in grub
+                # copy base to folder
 
-            grubcfg = dt.encode_grub(grubcfg)
+                grubcfg = dt.encode_grub(grubcfg)
 
-            if not DRYRUN:
-                utilities.elevated_file_write("/etc/default/grub", grubcfg)
-            else:
-                message(
-                    [
-                        "The GRUB config would have been updated with the following:",
-                        "",
-                        grubcfg,
-                    ],
-                    "DRYRUN Simulated Output",
+                if not DRYRUN:
+                    utilities.elevated_file_write("/etc/default/grub", grubcfg)
+                else:
+                    message(
+                        [
+                            "The GRUB config would have been updated with the following:",
+                            "",
+                            grubcfg,
+                        ],
+                        "DRYRUN Simulated Output",
+                    )
+
+                runner(
+                    ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
+                    True,
+                    "Update GRUB Configuration",
                 )
-
-            runner(
-                ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
-                True,
-                "Update GRUB Configuration",
-            )
+            else:
+                message(["Cannot continue, returning."], "ABORTED")
+                return
 
     if ext:
         extcfg = dt.parse_uboot()

@@ -368,8 +368,9 @@ def debug_info() -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
     efi = dt.booted_with_edk()
+    elevated = elevator.spawned
     message(
-        [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}"],
+        [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}", f"Elevated: {elevated}"],
         "Debug Information",
     )
 
@@ -463,49 +464,77 @@ def set_base_dtb(dtb: str = None) -> None:
 
 
 def set_overlays(dtbos: list = []) -> None:
-    grub = grub_exists()
-    ext = extlinux_exists()
+    grub = dt.grub_exists()
+    ext = dt.extlinux_exists()
 
     normalized_dtbos = []
     dtb_cache = dt.gencache()
 
     if dtbos:
         overlays = []
-        for i in list(dtb_cache["overlays"].keys()):
-            bases.append(normalize_filename(i, "dtbo"))
 
+        # Populate overlays cache with trimmed names
+        for i in list(dtb_cache["overlays"].keys()):
+            overlays.append(normalize_filename(i, "dtbo"))
+
+        # Format inputted dtbos
         for i in dtbos:
             normalized_dtbos.append(normalize_filename(i, "dtbo"))
 
+        # Ensure they all exist
         for i in normalized_dtbos:
             if (i is None) or i not in overlays:
                 message(f'Overlay "{i}" not found on system, refusing to continue.')
                 return
 
+    message(["Dtbos:"] + dtbos + ["", "Normalized:"] + normalized_dtbos, "test")
+
     if grub:
-        grubcfg = dt.parse_grub()
+        if dt.uefi_overriden() or confirm(
+            [
+                "IMPORTANT NOTICE --!!-- IMPORTART NOTICE",
+                "",
+                "Upon the next reboot UEFI setup is required!",
+                "",
+                "To enter into UEFI setup you can either:",
+                " - Hold down ESC",
+                "  or",
+                ' - Select "Enter UEFI Setup" from within the GRUB Bootloader',
+                "",
+                "In the UEFI setup menu you need to select:",
+                "",
+                "Device Manager > Rockchip Platform Configuration > ACPI / Device Tree",
+                "",
+                "And do the following:",
+                "",
+                '    - Set "Config Table Mode" to "Device Tree"',
+                '    - Change "Support DTB override & overlays" to "Enabled"',
+            ],
+            "UEFI Setup required!",
+        ):
+            grubcfg = dt.parse_grub()
 
-        # do lomgicc
+            # do lomgicc
 
-        grubcfg = dt.encode_grub(grubcfg)
+            grubcfg = dt.encode_grub(grubcfg)
 
-        if not DRYRUN:
-            utilities.elevated_file_write("/etc/default/grub", grubcfg)
-        else:
-            message(
-                [
-                    "The GRUB config would have been updated with the following:",
-                    "",
-                    grubcfg,
-                ],
-                "DRYRUN Simulated Output",
+            if not DRYRUN:
+                utilities.elevated_file_write("/etc/default/grub", grubcfg)
+            else:
+                message(
+                    [
+                        "The GRUB config would have been updated with the following:",
+                        "",
+                        grubcfg,
+                    ],
+                    "DRYRUN Simulated Output",
+                )
+
+            runner(
+                ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
+                True,
+                "Update GRUB Configuration",
             )
-
-        runner(
-            ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
-            True,
-            "Update GRUB Configuration",
-        )
 
     if ext:
         extcfg = dt.parse_uboot()
@@ -884,6 +913,8 @@ def dt_manager(cmd: list = []) -> None:
                 dtbos = []
                 for i in res:
                     dtbos.append(matchdt[i])
+
+                set_overlays(dtbos)
 
         if options[selection] == "View Currently Enabled Trees":
             pass

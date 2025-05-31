@@ -15,13 +15,12 @@ from datetime import datetime
 
 from bredos import dt
 from bredos import utilities
+from bredos import curseapp as c
 
-APP_NAME = "BredOS Configurator"
+c.APP_NAME = "BredOS Configurator"
 LOG_FILE = None
 DRYRUN = False
 ROOT_MODE = False
-
-stdscr = None
 
 # --------------- RUNNER ----------------
 
@@ -29,17 +28,16 @@ elevator = utilities.Elevator()
 
 
 def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
-    global stdscr
     output = []
     if DRYRUN:
-        if stdscr is not None:
-            stdscr.clear()
-            stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-            draw_border()
+        if c.stdscr is not None:
+            c.stdscr.clear()
+            c.stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
+            c.draw_border()
         output = "DRYRUN: " + " ".join(cmd)
-        if stdscr is not None:
-            stdscr.addstr(3, 2, output)
-            stdscr.refresh()
+        if c.stdscr is not None:
+            c.stdscr.addstr(3, 2, output)
+            c.stdscr.refresh()
         else:
             print(output)
         return output
@@ -49,19 +47,19 @@ def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
         auth = False
         if not elevator.spawned:
             auth = True
-            stdscr.clear()
-            stdscr.refresh()
+            c.stdscr.clear()
+            c.stdscr.refresh()
             curses.nocbreak()
-            stdscr.keypad(False)
+            c.stdscr.keypad(False)
             curses.echo()
             curses.endwin()
             print("Authenticating..")
         proc_cm = elevator.run(" ".join(shlex.quote(part) for part in cmd))
         if auth:
-            stdscr = curses.initscr()
+            c.stdscr = curses.initscr()
             curses.noecho()
             curses.cbreak()
-            stdscr.keypad(True)
+            c.stdscr.keypad(True)
     else:
         proc_cm = subprocess.Popen(
             cmd,
@@ -76,26 +74,26 @@ def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
             y = 3
             ym = 0
             limit = 0
-            if stdscr is not None:
-                stdscr.clear()
-                stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-                draw_border()
-                ym, _ = stdscr.getmaxyx()
+            if c.stdscr is not None:
+                c.stdscr.clear()
+                c.stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
+                c.draw_border()
+                ym, _ = c.stdscr.getmaxyx()
                 limit = int(ym) - 2
-                stdscr.refresh()
+                c.stdscr.refresh()
             for line in proc.stdout:
                 if "[[EOC]]" in line:
                     break
-                if stdscr is not None:
+                if c.stdscr is not None:
                     if y < limit:
-                        stdscr.addstr(y if y <= limit else limit, 2, line)
+                        c.stdscr.addstr(y if y <= limit else limit, 2, line)
                     else:
                         for i in range(3, limit):
                             clear_line(i)
-                            stdscr.addstr(i, 2, output[y - limit - 3 + i][:-1])
+                            c.stdscr.addstr(i, 2, output[y - limit - 3 + i][:-1])
                     y += 1
-                    draw_border()
-                    stdscr.refresh()
+                    c.draw_border()
+                    c.stdscr.refresh()
                 else:
                     print(line, end="")
                 output.append(line)
@@ -133,15 +131,15 @@ def tui_runner(
 ) -> None:
     global LOG_FILE, ROOT_MODE
 
-    stdscr.clear()
-    draw_border()
-    stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-    stdscr.addstr(
+    c.stdscr.clear()
+    c.draw_border()
+    c.stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
+    c.stdscr.addstr(
         4,
         2,
         ("#" if elevate else "$") + " " + " ".join(cmd if not elevate else cmd[1:]),
     )
-    stdscr.refresh()
+    c.stdscr.refresh()
 
     output = cmdr(cmd, elevate, label)
 
@@ -149,217 +147,30 @@ def tui_runner(
         with open(LOG_FILE, "a") as f:
             f.write(f"$ {' '.join(cmd)}\n{output}\n")
 
-    maxy, _ = stdscr.getmaxyx()
+    maxy, _ = c.stdscr.getmaxyx()
 
     if not prompt:
         if DRYRUN:
             time.sleep(3)
         return
 
-    stdscr.attron(curses.A_REVERSE)
-    stdscr.addstr(
+    c.stdscr.attron(curses.A_REVERSE)
+    c.stdscr.addstr(
         maxy - 2,
         2,
         " " + ("ABORTED" if output == -1 else "OK") + " - Press Enter to return ",
     )
-    stdscr.attroff(curses.A_REVERSE)
-    stdscr.refresh()
-    while stdscr.getch() != ord("\n"):
+    c.stdscr.attroff(curses.A_REVERSE)
+    c.stdscr.refresh()
+    while c.stdscr.getch() != ord("\n"):
         pass
-    wait_clear()
+    c.wait_clear()
 
 
-def message(text: list, label: str = APP_NAME, prompt: bool = True) -> None:
-    if stdscr is None:
-        for line in text:
-            print(line)
-        return
-
-    text = [subline for line in text for subline in line.split("\n")]
-    maxy, maxx = stdscr.getmaxyx()
-    content_height = maxy - 5  # borders + label + prompt
-    scroll = 0
-
-    while True:
-        stdscr.clear()
-        draw_border()
-        stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-
-        visible_lines = text[scroll : scroll + content_height]
-        for i, line in enumerate(visible_lines):
-            stdscr.addstr(3 + i, 2, line[: maxx - 4])
-
-        if not prompt:
-            stdscr.refresh()
-            return
-
-        stdscr.attron(curses.A_REVERSE)
-        stdscr.addstr(
-            maxy - 2,
-            2,
-            (" SCROLL DOWN --" if scroll + content_height < len(text) else "")
-            + " Press Enter to continue ",
-        )
-        stdscr.attroff(curses.A_REVERSE)
-        stdscr.refresh()
-
-        key = stdscr.getch()
-        if key in (ord("\n"), curses.KEY_ENTER):
-            break
-        elif key in (curses.KEY_DOWN, ord("s"), ord("S")):
-            if scroll + content_height < len(text):
-                scroll += 1
-        elif key in (curses.KEY_UP, ord("w"), ord("W")):
-            if scroll > 0:
-                scroll -= 1
-
-    wait_clear()
-
-
-def confirm(text: list, label: str = APP_NAME) -> None:
-    if stdscr is None:
-        for line in text:
-            print(line)
-
-        while True:
-            try:
-                dat = input("(Y/N)> ")
-                if dat in ["y", "Y"]:
-                    return True
-                elif dat in ["n", "N"]:
-                    return False
-            except (KeyboardInterrupt, EOFError):
-                pass
-
-        return False  # Magical fallthrough
-
-    text = [subline for line in text for subline in line.split("\n")]
-    maxy, maxx = stdscr.getmaxyx()
-    content_height = maxy - 5  # space for borders, label, and prompt
-    scroll = 0
-    sel = None
-
-    while True:
-        stdscr.clear()
-        draw_border()
-        stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-
-        visible_lines = text[scroll : scroll + content_height]
-        for i, line in enumerate(visible_lines):
-            stdscr.addstr(3 + i, 2, line[: maxx - 4])
-
-        stdscr.attron(curses.A_REVERSE)
-        if sel is True:
-            prompt_line = (
-                " Confirm (Y/N): Y | "
-                + (" SCROLL DOWN --" if scroll + content_height < len(text) else "")
-                + " Press enter to continue "
-            )
-        elif sel is False:
-            prompt_line = (
-                " Confirm (Y/N): N | "
-                + (" SCROLL DOWN --" if scroll + content_height < len(text) else "")
-                + " Press enter to continue "
-            )
-        else:
-            prompt_line = " Confirm (Y/N): "
-        stdscr.addstr(maxy - 2, 2, prompt_line)
-        stdscr.attroff(curses.A_REVERSE)
-
-        stdscr.refresh()
-        key = stdscr.getch()
-
-        if key == ord("\n"):
-            if sel is not None and scroll + content_height >= len(text):
-                break
-        elif key in (curses.KEY_DOWN, ord("s"), ord("S")):
-            if scroll + content_height < len(text):
-                scroll += 1
-        elif key in (curses.KEY_UP, ord("w"), ord("W")):
-            if scroll > 0:
-                scroll -= 1
-        elif key in [ord("y"), ord("Y")]:
-            if sel is not True:
-                sel = True
-        elif key in [ord("n"), ord("N")]:
-            if sel is not False:
-                sel = False
-        elif sel is not None:
-            sel = None
-
-    wait_clear()
-    return sel
-
-
-def selector(
-    items: list,
-    multi: bool,
-    label: str | None = None,
-    preselect: int | list = -1,
-) -> list | int:
-    curses.curs_set(0)
-    selected = [False] * len(items)
-    idx = 0
-    if isinstance(preselect, int):
-        if preselect != -1:
-            selected[preselect] = True
-            idx = preselect
-    else:
-        for i in preselect:
-            selected[i] = True
-    start_y = 3
-    h, w = stdscr.getmaxyx()
-    view_h = h - start_y - 1
-    offset = max(idx - view_h + 1, 0)
-
-    def draw() -> None:
-        stdscr.clear()
-        h, w = stdscr.getmaxyx()
-        if label:
-            stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-        draw_border()
-        nonlocal offset
-        if idx < offset:
-            offset = idx
-        elif idx >= offset + view_h:
-            offset = idx - view_h + 1
-        for view_idx in range(view_h):
-            item_idx = offset + view_idx
-            y = start_y + view_idx
-            if item_idx >= len(items):
-                break
-            prefix = (
-                "- [x]"
-                if multi and selected[item_idx]
-                else "- [ ]" if multi else " <*>" if idx == item_idx else " < >"
-            )
-            text = f"{prefix} {items[item_idx]}"
-            attr = curses.A_REVERSE if item_idx == idx else curses.A_NORMAL
-            stdscr.addnstr(y, 2, text, w - 4, attr)
-        stdscr.refresh()
-
-    while True:
-        draw()
-        key = stdscr.getch()
-        if key == curses.KEY_UP:
-            idx = (idx - 1) % len(items)
-        elif key == curses.KEY_DOWN:
-            idx = (idx + 1) % len(items)
-        elif key == ord(" ") and multi:
-            selected[idx] = not selected[idx]
-        elif key == ord("q"):
-            return [] if multi else None
-        elif key in (curses.KEY_ENTER, ord("\n"), ord("\r")):
-            if multi:
-                return [i for i, sel in enumerate(selected) if sel]
-            else:
-                return idx
-        elif key == 27:  # ESC
-            return [] if multi else None
-
-
-def runner(cmd: list, elevate=True, label: str = APP_NAME, prompt: bool = True) -> None:
-    if stdscr is None:
+def runner(
+    cmd: list, elevate=True, label: str = c.APP_NAME, prompt: bool = True
+) -> None:
+    if c.stdscr is None:
         cli_runner(cmd, elevate=elevate)
     else:
         tui_runner(label, cmd, elevate=elevate, prompt=prompt)
@@ -370,7 +181,7 @@ def debug_info() -> None:
     ext = dt.extlinux_exists()
     efi = dt.booted_with_edk()
     elevated = elevator.spawned
-    message(
+    c.message(
         [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}", f"Elevated: {elevated}"],
         "Debug Information",
     )
@@ -432,43 +243,57 @@ def set_base_dtb(dtb: str = None) -> None:
         normalized_dtb = normalize_filename(dtb, "dtb")
 
         if (normalized_dtb is None) or (normalized_dtb not in bases):
-            message(f'DTB "{dtb}" not found on system, refusing to continue.')
+            c.message(f'DTB "{dtb}" not found on system, refusing to continue.')
             return
 
     if grub:
         grubcfg = dt.parse_grub()
 
-        if dtb is not None:
-            matched_dtb = utilities.match_filename(
-                normalized_dtb, list(dtb_cache["base"].keys())
+        if not dt.uefi_overriden():
+            if dtb is not None:
+                matched_dtb = utilities.match_filename(
+                    normalized_dtb, list(dtb_cache["base"].keys())
+                )
+                if matched_dtb is not None:
+                    if matched_dtb.startswith("/boot/"):
+                        matched_dtb = matched_dtb[6:]
+                    grubcfg["GRUB_DTB"] = matched_dtb
+            else:
+                if "GRUB_DTB" in grubcfg.keys():
+                    del grubcfg["GRUB_DTB"]
+
+            grubcfg = dt.encode_grub(grubcfg)
+
+            if not DRYRUN:
+                utilities.elevated_file_write("/etc/default/grub", grubcfg)
+            else:
+                c.message(
+                    [
+                        "The GRUB config would have been updated with the following:",
+                        "",
+                        grubcfg,
+                    ],
+                    "DRYRUN Simulated Output",
+                )
+
+            runner(
+                ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
+                True,
+                "Update GRUB Configuration",
             )
-            if matched_dtb is not None:
-                if matched_dtb.startswith("/boot/"):
-                    matched_dtb = matched_dtb[6:]
-                grubcfg["GRUB_DTB"] = matched_dtb
         else:
-            if "GRUB_DTB" in grubcfg.keys():
-                del grubcfg["GRUB_DTB"]
+            if dtb is not None:
+                matched_dtb = utilities.match_filename(
+                    normalized_dtb, list(dtb_cache["base"].keys())
+                )
+                if matched_dtb is not None:
+                    if matched_dtb.startswith("/boot/"):  # TODO: Update this rule
+                        matched_dtb = matched_dtb[6:]
 
-        grubcfg = dt.encode_grub(grubcfg)
-
-        if not DRYRUN:
-            utilities.elevated_file_write("/etc/default/grub", grubcfg)
-        else:
-            message(
-                [
-                    "The GRUB config would have been updated with the following:",
-                    "",
-                    grubcfg,
-                ],
-                "DRYRUN Simulated Output",
-            )
-
-        runner(
-            ["grub-mkconfig", "-o", "/boot/grub/grub.cfg"],
-            True,
-            "Update GRUB Configuration",
-        )
+                pass  # TODO: Swap dtb in <EFI>/base/
+            else:
+                c.message("Refusing to unset Base DTB for UEFI!", "ERROR")
+                return
 
     if ext:
         extcfg = dt.parse_uboot()
@@ -484,7 +309,7 @@ def set_base_dtb(dtb: str = None) -> None:
         if not DRYRUN:
             utilities.elevated_file_write("/etc/default/u-boot", extcfg)
         else:
-            message(
+            c.message(
                 [
                     "The u-boot config would have been updated with the following:",
                     "",
@@ -521,14 +346,14 @@ def set_overlays(dtbos: list = []) -> None:
         # Ensure they all exist
         for i in normalized_dtbos:
             if (i is None) or i not in overlays:
-                message(f'Overlay "{i}" not found on system, refusing to continue.')
+                c.message(f'Overlay "{i}" not found on system, refusing to continue.')
                 return
 
-    message(["Dtbos:"] + dtbos + ["", "Normalized:"] + normalized_dtbos, "test")
+    c.message(["Dtbos:"] + dtbos + ["", "Normalized:"] + normalized_dtbos, "test")
 
     if grub:
         if not dt.uefi_overriden():
-            if confirm(
+            if c.confirm(
                 [
                     "IMPORTANT NOTICE --!!-- IMPORTART NOTICE",
                     "",
@@ -552,15 +377,15 @@ def set_overlays(dtbos: list = []) -> None:
             ):
                 grubcfg = dt.parse_grub()
 
-                # Disable dtb in grub
-                # copy base to folder
+                # TODO: Disable dtb in grub
+                # TODO: Copy base to folder
 
                 grubcfg = dt.encode_grub(grubcfg)
 
                 if not DRYRUN:
                     utilities.elevated_file_write("/etc/default/grub", grubcfg)
                 else:
-                    message(
+                    c.message(
                         [
                             "The GRUB config would have been updated with the following:",
                             "",
@@ -575,7 +400,7 @@ def set_overlays(dtbos: list = []) -> None:
                     "Update GRUB Configuration",
                 )
             else:
-                message(["Cannot continue, returning."], "ABORTED")
+                c.message(["Cannot continue, returning."], "ABORTED")
                 return
 
     if ext:
@@ -592,7 +417,7 @@ def set_overlays(dtbos: list = []) -> None:
         if not DRYRUN:
             utilities.elevated_file_write("/etc/default/u-boot", extcfg)
         else:
-            message(
+            c.message(
                 [
                     "The u-boot config would have been updated with the following:",
                     "",
@@ -617,7 +442,7 @@ def filesystem_maint() -> None:
         "-c",
         'findmnt -n -o FSTYPE / | grep -q btrfs && echo "Detected BTRFS root, performing balance operation." && btrfs balance start -dusage=20 -musage=20 /',
     ]
-    if confirm(
+    if c.confirm(
         [
             "This will perform a BTRFS balance operation.",
             "",
@@ -634,7 +459,7 @@ def filesystem_check() -> None:
         "-c",
         'findmnt -n -o FSTYPE / | grep -q btrfs && echo "Detected BTRFS root, performing scrub." && btrfs scrub start -Bd /',
     ]
-    if confirm(
+    if c.confirm(
         [
             "This will perform a full BTRFS scrub operation.",
             "Cancelling is not adviced.",
@@ -654,7 +479,7 @@ def filesystem_resize() -> None:
         "-c",
         'systemctl enable resizefs && echo "The filesystem will be expanded upon the next reboot!"',
     ]
-    if confirm(
+    if c.confirm(
         [
             "This enables a service present and used upon the first boot of the device.",
             "This is a safe operation.",
@@ -665,7 +490,7 @@ def filesystem_resize() -> None:
     ):
         runner(cmd, True, "Filesystem Resize")
     else:
-        message(["This incident will be reported to Santa Claus."], "Pancake spirit")
+        c.message(["This incident will be reported to Santa Claus."], "Pancake spirit")
 
 
 def uboot_migrator() -> bool:
@@ -674,7 +499,7 @@ def uboot_migrator() -> bool:
 
     installed = dt.safe_exists("/usr/bin/u-boot-update")
     if not installed:
-        res = confirm(
+        res = c.confirm(
             [
                 "Migrating to u-boot-update is required!",
                 "",
@@ -732,7 +557,7 @@ def uboot_migrator() -> bool:
         if not DRYRUN:
             utilities.elevated_file_write("/etc/default/u-boot", extcfg)
         else:
-            message(
+            c.message(
                 [
                     "The U-Boot config would have been updated with the following:",
                     "",
@@ -747,12 +572,12 @@ def uboot_migrator() -> bool:
             "Trigger U-Boot Update",
         )
 
-        message(["Migration complete!"], "U-Boot-Update Migrator")
+        c.message(["Migration complete!"], "U-Boot-Update Migrator")
     return True
 
 
 def dt_manager(cmd: list = []) -> None:
-    message(["Please wait.."], "Generating Device Tree Caches", False)
+    c.message(["Please wait.."], "Generating Device Tree Caches", False)
 
     migrated = uboot_migrator()
     if not migrated:
@@ -760,10 +585,10 @@ def dt_manager(cmd: list = []) -> None:
 
     dts = dt.gencache()
     if not dts["base"]:
-        message(["No Device Trees were detected!"], "Device Tree Manager", True)
+        c.message(["No Device Trees were detected!"], "Device Tree Manager", True)
         return
 
-    if stdscr is None:
+    if c.stdscr is None:
         if not cmd:
             print("No operations specified.\n\nUsage: list/base/overlay\n")
         else:
@@ -852,7 +677,7 @@ def dt_manager(cmd: list = []) -> None:
                 print("Invalid operation specified.\n\nUsage: list/base/overlay\n")
         return
 
-    res = confirm(
+    res = c.confirm(
         [
             "This command is only for advanced users!",
             "",
@@ -872,12 +697,12 @@ def dt_manager(cmd: list = []) -> None:
     ]
 
     while True:
-        selection = draw_menu("Device Tree Manager", options)
+        selection = c.draw_menu("Device Tree Manager", options)
         if selection is None or options[selection] == "Main Menu":
             return
 
-        stdscr.clear()
-        stdscr.refresh()
+        c.stdscr.clear()
+        c.stdscr.refresh()
         if options[selection] == "Set the Base Device Tree":
             maxnl = max(len(v["name"]) for v in dts["base"].values())
             maxde = max(
@@ -1002,15 +827,15 @@ WantedBy=default.target
 """
 
     if service_path.exists():
-        if confirm(["Remove the hack?"], "Pipewire CPU Fix") and not DRYRUN:
+        if c.confirm(["Remove the hack?"], "Pipewire CPU Fix") and not DRYRUN:
             service_path.unlink()
     else:
-        if confirm(["Apply the hack?"], "Pipewire CPU Fix") and not DRYRUN:
+        if c.confirm(["Apply the hack?"], "Pipewire CPU Fix") and not DRYRUN:
             service_path.parent.mkdir(parents=True, exist_ok=True)
             service_path.write_text(service_content)
         res = True
 
-    message(
+    c.message(
         [
             "Pipewire CPU Fix " + ("applied" if res else "removed") + ".",
             "Relog or Reboot to apply.",
@@ -1025,7 +850,7 @@ def hack_wol() -> None:
         "-c",
         'pacman -Qi bredos-wol &>/dev/null && echo "Removing.." && pacman -R --noconfirm bredos-wol || { echo "Installing.."; pacman -Sy; pacman -S --noconfirm bredos-wol; }',
     ]
-    if confirm(["Toggle the Wake-On-Lan hack?"], "Wake On Lan"):
+    if c.confirm(["Toggle the Wake-On-Lan hack?"], "Wake On Lan"):
         runner(cmd, True, "Wake On Lan")
 
 
@@ -1073,7 +898,7 @@ def install_recommends() -> None:
         + " evince"
         + " loupe",
     ]
-    if confirm(
+    if c.confirm(
         [
             "This will install the following packages:",
             "",
@@ -1109,7 +934,7 @@ def install_docker() -> None:
         + " && systemctl mask systemd-networkd-wait-online"
         + " && systemctl enable --now docker",
     ]
-    if confirm(
+    if c.confirm(
         [
             "This will install AND ENABLE the following packages:",
             "",
@@ -1132,7 +957,7 @@ def install_steam_any() -> None:
         "-c",
         "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-any",
     ]
-    if confirm(
+    if c.confirm(
         [
             "This will install Steam for ARM, for mainline mesa systems.",
             "",
@@ -1149,7 +974,7 @@ def install_steam_panfork() -> None:
         "-c",
         "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-rk3588",
     ]
-    if confirm(
+    if c.confirm(
         [
             "This will install Steam for ARM, suitable for RK3588 systems with Panfork graphics.",
             "",
@@ -1179,7 +1004,7 @@ def install_development() -> None:
         + " vboot-utils"
         + " bredos-tools",
     ]
-    if confirm(
+    if c.confirm(
         [
             "This will install the following packages:",
             "",
@@ -1221,7 +1046,7 @@ def autoremove() -> None:
         "while pacman -Qdtq >/dev/null 2>&1; do sudo pacman -Rns --noconfirm $(pacman -Qdtq); done",
     ]
     elevate = True
-    if confirm(
+    if c.confirm(
         [
             "This will REMOVE ALL PACKAGES that aren't:",
             " - Depended upon by another package",
@@ -1235,107 +1060,6 @@ def autoremove() -> None:
         runner(cmd, True, "Remove Unused Packages")
 
 
-# -------------- TUI LOGIC --------------
-
-
-def draw_border() -> None:
-    stdscr.attron(curses.color_pair(1))
-    stdscr.border()
-    stdscr.attroff(curses.color_pair(1))
-
-
-def wait_clear(timeout: float = 0.2) -> None:
-    stdscr.nodelay(True)
-    keys_held = True
-
-    while keys_held:
-        try:
-            keys_held = False
-            start_time = time.time()
-
-            while time.time() - start_time < timeout:
-                if stdscr.getch() != -1:
-                    keys_held = True
-                    break
-                time.sleep(0.01)
-        except KeyboardInterrupt:
-            pass
-
-    stdscr.nodelay(False)
-
-
-def clear_line(y) -> None:
-    stdscr.move(y, 0)
-    stdscr.clrtoeol()
-
-
-def draw_list(title: str, options: list, selected: int, special: bool = False) -> None:
-    stdscr.addstr(1, 2, title, curses.A_BOLD | curses.A_UNDERLINE)
-
-    h, w = stdscr.getmaxyx()
-    for idx, option in enumerate(options):
-        x = 4
-        y = 3 + idx
-        clear_line(y)
-        draw_border()
-        if idx == selected:
-            if special:
-                stdscr.addstr(y, x, "[< " + option + " >]")
-            else:
-                stdscr.attron(curses.A_REVERSE)
-                stdscr.addstr(y, x, "[> " + option + " <]")
-                stdscr.attroff(curses.A_REVERSE)
-        else:
-            stdscr.addstr(y, x, option)
-
-    stdscr.refresh()
-
-
-def draw_menu(title: str, options: list):
-    curses.curs_set(0)
-    current_row = 0
-    wait_clear()
-    stdscr.clear()
-
-    while True:
-        try:
-            draw_list(
-                title + (" (DRYRUN)" if DRYRUN else ""),
-                options,
-                selected=current_row,
-            )
-            key = stdscr.getch()
-
-            if key == curses.KEY_UP:
-                if current_row > 0:
-                    current_row -= 1
-                else:
-                    current_row = len(options) - 1
-            elif key == curses.KEY_DOWN:
-                if current_row < len(options) - 1:
-                    current_row += 1
-                else:
-                    current_row = 0
-            elif key in (curses.KEY_ENTER, ord("\n")):
-                draw_list(title, options, selected=current_row)
-                time.sleep(0.08)
-                draw_list(title, options, selected=current_row, special=True)
-                time.sleep(0.08)
-                draw_list(title, options, selected=current_row)
-                time.sleep(0.08)
-                draw_list(title, options, selected=current_row, special=True)
-                time.sleep(0.08)
-                draw_list(title, options, selected=current_row)
-                time.sleep(0.08)
-                return current_row
-            elif key in (ord("q"), 27):  # ESC or 'q'
-                return None
-            wait_clear(0.065)
-        except KeyboardInterrupt:
-            wait_clear()
-            stdscr.clear()
-
-
 def sys_health_menu():
     options = [
         "Perform Filesystem Maintenance",
@@ -1347,12 +1071,12 @@ def sys_health_menu():
     ]
 
     while True:
-        selection = draw_menu("Filesystem", options)
+        selection = c.draw_menu("Filesystem", options)
         if selection is None or options[selection] == "Main Menu":
             return
 
-        stdscr.clear()
-        stdscr.refresh()
+        c.stdscr.clear()
+        c.stdscr.refresh()
         if options[selection] == "Perform Filesystem Maintenance":
             filesystem_maint()
         if options[selection] == "Check & Repair Filesystem":
@@ -1369,12 +1093,12 @@ def sys_tweaks_menu() -> None:
     options = ["Pipewire CPU fix", "Wake On Lan", "Main Menu"]
 
     while True:
-        selection = draw_menu("System Tweaks", options)
+        selection = c.draw_menu("System Tweaks", options)
         if selection is None or options[selection] == "Main Menu":
             return
 
-        stdscr.clear()
-        stdscr.refresh()
+        c.stdscr.clear()
+        c.stdscr.refresh()
         if options[selection] == "Pipewire CPU fix":
             hack_pipewire()
         if options[selection] == "Wake On Lan":
@@ -1395,12 +1119,12 @@ def packages_menu() -> None:
     ]
 
     while True:
-        selection = draw_menu("Packages", options)
+        selection = c.draw_menu("Packages", options)
         if selection is None or options[selection] == "Main Menu":
             return
 
-        stdscr.clear()
-        stdscr.refresh()
+        c.stdscr.clear()
+        c.stdscr.refresh()
         if options[selection] == "Install Recommended Desktop Packages":
             install_recommends()
         if options[selection] == "Install Docker":
@@ -1429,13 +1153,13 @@ def main_menu():
             curses.init_pair(1, curses.COLOR_RED, -1)
         except:
             pass
-    stdscr.bkgd(" ", curses.color_pair(1))
-    stdscr.clear()
+    c.stdscr.bkgd(" ", curses.color_pair(1))
+    c.stdscr.clear()
 
     options = ["System Upkeep", "System Tweaks", "Packages", "Debug", "Exit"]
 
     while True:
-        selection = draw_menu(APP_NAME, options)
+        selection = c.draw_menu(c.APP_NAME, options)
         if selection is None or options[selection] == "Exit":
             return
 
@@ -1450,17 +1174,16 @@ def main_menu():
 
 
 def tui():
-    global stdscr
-    stdscr = curses.initscr()
+    c.stdscr = curses.initscr()
     curses.noecho()
     curses.cbreak()
-    stdscr.keypad(True)
+    c.stdscr.keypad(True)
 
     try:
         main_menu()
     finally:
-        stdscr.clear()
-        stdscr.keypad(False)
+        c.stdscr.clear()
+        c.stdscr.keypad(False)
         curses.echo()
         curses.nocbreak()
         curses.endwin()
@@ -1522,7 +1245,7 @@ def check_root() -> bool:
 
 def main():
     global LOG_FILE, DRYRUN, ROOT_MODE
-    parser = argparse.ArgumentParser(prog="bredos-config", description=APP_NAME)
+    parser = argparse.ArgumentParser(prog="bredos-config", description=c.APP_NAME)
     parser.add_argument(
         "--log", action="store_true", help="Log output to bredos-config-<date>.txt"
     )
@@ -1592,6 +1315,7 @@ def main():
 
     if args.dryrun:
         DRYRUN = True
+        c.DRYRUN = True
 
     if check_root():
         ROOT_MODE = True

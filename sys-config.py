@@ -160,9 +160,9 @@ def runner(
     cmd: list, elevate=True, label: str = c.APP_NAME, prompt: bool = True
 ) -> None:
     if c.stdscr is None:
-        cli_runner(cmd, elevate=elevate, prompt=prompt)
+        cli_runner(cmd, elevate=elevate)
     else:
-        tui_runner(label, cmd, elevate=elevate)
+        tui_runner(label, cmd, elevate=elevate, prompt=prompt)
 
 
 def mrunner(
@@ -323,7 +323,7 @@ def set_overlays(dtbos: list = []) -> None:
 
         # Format inputted dtbos
         for i in dtbos:
-            normalized_dtbos.append(normalize_filename(i, "dtbo"))
+            normalized_dtbos.add(normalize_filename(i, "dtbo"))
 
         # Ensure they all exist
         for i in normalized_dtbos:
@@ -336,7 +336,7 @@ def set_overlays(dtbos: list = []) -> None:
 
         # Match inputted dtbos
         for i in normalized_dtbos:
-            matched_dtbos.append(
+            matched_dtbos.add(
                 utilities.match_filename(i, list(dtb_cache["overlays"].keys()))
             )
 
@@ -717,17 +717,38 @@ def dt_manager(cmd: list = []) -> None:
         else:
             if cmd[0] == "list":
                 print("\n".join(gen_dt_report()))
+            elif cmd[0] == "base":
+                if len(cmd) > 1:
+                    set_base_dtb(cmd[1])
+                else:
+                    live, _ = dt.detect_live()
+                    if live:
+                        live = str(live)
+                        live = live[live.rfind("/") + 1 : live.rfind(".")]
+                        print(f"Currently booted base DTB: {live}.dtb")
             elif cmd[0] == "overlay":
                 if len(cmd) > 1:
                     if cmd[1] == "enable":
                         existing = dt.identify_overlays()
                         dtbos = cmd[2:]
-                        existing += dtbos
+                        for i in range(len(existing)):
+                            existing[i] = normalize_filename(existing[i], "dtbo")
+                        for i in range(len(dtbos)):
+                            dtbos[i] = normalize_filename(dtbos[i], "dtbo")
+                        for i in dtbos:
+                            if i not in existing:
+                                existing.append(i)
                         set_overlays(existing)
                     elif cmd[1] == "disable":
                         existing = dt.identify_overlays()
                         dtbos = cmd[2:]
-                        # TODO: DO the LOMGIIII
+                        for i in range(len(existing)):
+                            existing[i] = normalize_filename(existing[i], "dtbo")
+                        for i in range(len(dtbos)):
+                            dtbos[i] = normalize_filename(dtbos[i], "dtbo")
+                        for i in dtbos:
+                            if i in existing:
+                                existing.remove(i)
                         set_overlays(existing)
                     else:
                         print(

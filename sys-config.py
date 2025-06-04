@@ -47,19 +47,12 @@ def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
         auth = False
         if not elevator.spawned:
             auth = True
-            c.stdscr.clear()
-            c.stdscr.refresh()
-            curses.nocbreak()
-            c.stdscr.keypad(False)
-            curses.echo()
-            curses.endwin()
+            if c.stdscr is not None:
+                c.suspend()
             print("Authenticating..")
         proc_cm = elevator.run(" ".join(shlex.quote(part) for part in cmd))
-        if auth:
-            c.stdscr = curses.initscr()
-            curses.noecho()
-            curses.cbreak()
-            c.stdscr.keypad(True)
+        if auth and c.stdscr is not None:
+            c.resume()
     else:
         proc_cm = subprocess.Popen(
             cmd,
@@ -110,10 +103,8 @@ def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
 
 def cli_runner(cmd: str, elevate: bool = False) -> None:
     global LOG_FILE, ROOT_MODE
-    if elevate and not ROOT_MODE:
-        cmd = ["pkexec"] + cmd
 
-    result = cmdr(cmd, None, elevate)
+    result = cmdr(cmd, elevate)
 
     if LOG_FILE is not None and result != -1:
         with open(LOG_FILE, "a") as f:
@@ -122,8 +113,6 @@ def cli_runner(cmd: str, elevate: bool = False) -> None:
 
     if result == -1:
         print("\nABORTED")
-    else:
-        print(f"\nOK")
 
 
 def tui_runner(
@@ -171,18 +160,30 @@ def runner(
     cmd: list, elevate=True, label: str = c.APP_NAME, prompt: bool = True
 ) -> None:
     if c.stdscr is None:
-        cli_runner(cmd, elevate=elevate)
+        cli_runner(cmd, elevate=elevate, prompt=prompt)
     else:
-        tui_runner(label, cmd, elevate=elevate, prompt=prompt)
+        tui_runner(label, cmd, elevate=elevate)
+
+
+def mrunner(
+    cmds: list, elevate=True, label: str = c.APP_NAME, prompt: bool = True
+) -> None:
+    cmd = " && ".join(" ".join(b.replace("'", "\\'") for b in a) for a in cmds)
+    runner(["sh", "-c", cmd], elevate, label, prompt)
 
 
 def debug_info() -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
     efi = dt.booted_with_edk()
-    elevated = elevator.spawned
     c.message(
-        [f"GRUB: {grub}", f"EXTLINUX: {ext}", f"EFI: {efi}", f"Elevated: {elevated}"],
+        [
+            f"GRUB: {grub}",
+            f"EXTLINUX: {ext}",
+            f"EFI: {efi}",
+            f"Elevated: {elevator.spawned}",
+            f"DryRun: {DRYRUN}",
+        ],
         "Debug Information",
     )
 
@@ -193,46 +194,11 @@ def normalize_filename(filename: str, extension: str) -> str:
     return f"{name}.{extension}"
 
 
-def cp(src_file, dst_dir, overwrite=True) -> None:
-    """
-    Copies `src_file` into `dst_dir`, creating directories if needed.
-
-    Parameters:
-    - src_file (str or Path): Path to the source file.
-    - dst_dir (str or Path): Path to the destination directory.
-    - overwrite (bool): If False, raises an error if file exists.
-
-    Raises:
-    - FileNotFoundError: If src_file does not exist.
-    - FileExistsError: If destination file exists and overwrite is False.
-    - OSError: For other I/O errors.
-    """
-    src_file = Path(src_file)
-    dst_dir = Path(dst_dir)
-
-    if not src_file.is_file():
-        raise FileNotFoundError(f"Source file does not exist: {src_file}")
-
-    try:
-        dst_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        raise OSError(f"Failed to create destination directory: {dst_dir}") from e
-
-    dst_file = dst_dir / src_file.name
-
-    if dst_file.exists() and not overwrite:
-        raise FileExistsError(f"Destination file already exists: {dst_file}")
-
-    try:
-        shutil.copy2(src_file, dst_file)
-    except Exception as e:
-        raise OSError(f"Failed to copy file: {src_file} → {dst_file}") from e
-
-
 def set_base_dtb(dtb: str = None) -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
     normalized_dtb = None
+    matched_dtb = None
     dtb_cache = dt.gencache()
 
     if dtb is not None:
@@ -243,29 +209,34 @@ def set_base_dtb(dtb: str = None) -> None:
         normalized_dtb = normalize_filename(dtb, "dtb")
 
         if (normalized_dtb is None) or (normalized_dtb not in bases):
-            c.message(f'DTB "{dtb}" not found on system, refusing to continue.')
+            c.message(
+                [f'DTB "{dtb}" not found on system, refusing to continue.'], "ERROR"
+            )
             return
+
+        matched_dtb = utilities.match_filename(
+            normalized_dtb, list(dtb_cache["base"].keys())
+        )
+        if matched_dtb is None:
+            c.message(["Failed to match DTB!"], "ERROR")
+            return
+    else:
+        c.message("Refusing to unset Base DTB!", "ERROR")
+        return
 
     if grub:
         grubcfg = dt.parse_grub()
 
         if not dt.uefi_overriden():
-            if dtb is not None:
-                matched_dtb = utilities.match_filename(
-                    normalized_dtb, list(dtb_cache["base"].keys())
-                )
-                if matched_dtb is not None:
-                    if matched_dtb.startswith("/boot/"):
-                        matched_dtb = matched_dtb[6:]
-                    grubcfg["GRUB_DTB"] = matched_dtb
-            else:
-                if "GRUB_DTB" in grubcfg.keys():
-                    del grubcfg["GRUB_DTB"]
+            grubdtbn = matched_dtb
+            if grubdtbn.startswith("/boot/"):
+                grubdtbn = grubdtbn[6:]
+            grubcfg["GRUB_DTB"] = grubdtbn
 
             grubcfg = dt.encode_grub(grubcfg)
 
             if not DRYRUN:
-                utilities.elevated_file_write("/etc/default/grub", grubcfg)
+                c.elevated_file_write("/etc/default/grub", grubcfg)
             else:
                 c.message(
                     [
@@ -282,32 +253,42 @@ def set_base_dtb(dtb: str = None) -> None:
                 "Update GRUB Configuration",
             )
         else:
-            if dtb is not None:
-                matched_dtb = utilities.match_filename(
-                    normalized_dtb, list(dtb_cache["base"].keys())
-                )
-                if matched_dtb is not None:
-                    if matched_dtb.startswith("/boot/"):  # TODO: Update this rule
-                        matched_dtb = matched_dtb[6:]
+            # Remove all old Base DTBs
+            efidir = dt.detect_efidir()
+            listing = utilities.ls(efidir + "/dtb/base/")
+            listing_str = " ".join(str(p) for p in listing)
 
-                pass  # TODO: Swap dtb in <EFI>/base/
-            else:
-                c.message("Refusing to unset Base DTB for UEFI!", "ERROR")
-                return
+            cmds = [
+                ["rm", "-v", listing_str],
+                ["cp", "-v", matched_dtb, efidir + "/dtb/base/"],
+            ]
+
+            # Changes here must also be performed down in set_overlays
+            if normalized_dtb == "rk3588s-fydetab-duo.dtb":
+                cmds.append(
+                    [
+                        "cp",
+                        "-v",
+                        matched_dtb,
+                        efidir + "/dtb/base/rk3588s-tablet-12c-linux.dtb",
+                    ]
+                )
+            elif normalized_dtb == "rk3588-rock-5b-plus.dtb":
+                cmds.append(
+                    ["cp", "-v", matched_dtb, efidir + "/dtb/base/rk3588-rock-5bp.dtb"]
+                )
+            cmds.append(["sync", efidir])
+            mrunner(cmds, True, "Performing Changes", False)
 
     if ext:
         extcfg = dt.parse_uboot()
 
-        if dtb is not None:
-            extcfg["U_BOOT_FDT"] = normalized_dtb
-        else:
-            if "U_BOOT_FDT" in extcfg.keys():
-                del extcfg["U_BOOT_FDT"]
+        extcfg["U_BOOT_FDT"] = normalized_dtb
 
         extcfg = dt.encode_uboot(extcfg)
 
         if not DRYRUN:
-            utilities.elevated_file_write("/etc/default/u-boot", extcfg)
+            c.elevated_file_write("/etc/default/u-boot", extcfg)
         else:
             c.message(
                 [
@@ -330,6 +311,7 @@ def set_overlays(dtbos: list = []) -> None:
     ext = dt.extlinux_exists()
 
     normalized_dtbos = []
+    matched_dtbos = []
     dtb_cache = dt.gencache()
 
     if dtbos:
@@ -346,12 +328,31 @@ def set_overlays(dtbos: list = []) -> None:
         # Ensure they all exist
         for i in normalized_dtbos:
             if (i is None) or i not in overlays:
-                c.message(f'Overlay "{i}" not found on system, refusing to continue.')
+                c.message(
+                    [f'Overlay "{i}" not found on system, refusing to continue.'],
+                    "ERROR",
+                )
                 return
 
-    c.message(["Dtbos:"] + dtbos + ["", "Normalized:"] + normalized_dtbos, "test")
+        # Match inputted dtbos
+        for i in normalized_dtbos:
+            matched_dtbos.append(
+                utilities.match_filename(i, list(dtb_cache["overlays"].keys()))
+            )
+
+        # Ensure they all exist
+        for i in matched_dtbos:
+            if i is None:
+                c.message(
+                    [f'Overlay "{i}" failed to match, refusing to continue.'], "ERROR"
+                )
+                return
+
+    # c.message(["Dtbos:"] + dtbos + ["", "Normalized:"] + normalized_dtbos + ["", "Matched:"] + matched_dtbos, "test")
 
     if grub:
+        efidir = dt.detect_efidir()
+
         if not dt.uefi_overriden():
             if c.confirm(
                 [
@@ -370,20 +371,58 @@ def set_overlays(dtbos: list = []) -> None:
                     "",
                     "And do the following:",
                     "",
-                    '    - Set "Config Table Mode" to "Device Tree"',
-                    '    - Change "Support DTB override & overlays" to "Enabled"',
+                    ' - Set "Config Table Mode" to "Device Tree"',
+                    ' - Change "Support DTB override & overlays" to "Enabled"',
+                    "",
+                    "Press Y to continue, or N to abort this operation.",
                 ],
                 "UEFI Setup required!",
             ):
                 grubcfg = dt.parse_grub()
 
-                # TODO: Disable dtb in grub
-                # TODO: Copy base to folder
+                # Fetch original base DTB
+                base_dtb_normalized = normalize_filename(grubcfg["GRUB_DTB"], "dtb")
+                base_dtb_path = utilities.match_filename(
+                    base_dtb_normalized, list(dtb_cache["base"].keys())
+                )
+                if base_dtb_path is None:
+                    c.message(["Failed to match DTB!"], "ERROR")
+                    return
 
+                cmds = [
+                    ["mkdir", "-vp", efidir + "/dtb/base/", efidir + "/dtb/overlays/"],
+                    ["cp", "-v", base_dtb_path, efidir + "/dtb/base/"],
+                ]
+
+                # Copy base DTB, changes here must be also be performed to set_base_dtb
+                if normalized_dtb == "rk3588s-fydetab-duo.dtb":
+                    cmds.append(
+                        [
+                            "cp",
+                            "-v",
+                            base_dtb_path,
+                            efidir + "/dtb/base/rk3588s-tablet-12c-linux.dtb",
+                        ]
+                    )
+                elif normalized_dtb == "rk3588-rock-5b-plus.dtb":
+                    cmds.append(
+                        [
+                            "cp",
+                            "-v",
+                            base_dtb_path,
+                            efidir + "/dtb/base/rk3588-rock-5bp.dtb",
+                        ]
+                    )
+                cmds.append(["sync", efidir])
+
+                mrunner(cmds, True, "Performing Changes", False)
+
+                # Disable dtb in grub
+                del grubcfg["GRUB_DTB"]
                 grubcfg = dt.encode_grub(grubcfg)
 
                 if not DRYRUN:
-                    utilities.elevated_file_write("/etc/default/grub", grubcfg)
+                    c.elevated_file_write("/etc/default/grub", grubcfg)
                 else:
                     c.message(
                         [
@@ -403,10 +442,35 @@ def set_overlays(dtbos: list = []) -> None:
                 c.message(["Cannot continue, returning."], "ABORTED")
                 return
 
+        # Remove all current DTBOs
+        listing = utilities.ls(efidir + "/dtb/overlays/")
+        listing_str = " ".join(str(p) for p in listing)
+
+        cmds = [["rm", "-v", listing_str]]
+
+        for dtbo in matched_dtbos:
+            cmds.append(["cp", "-v", dtbo, efidir + "/dtb/overlays/"])
+
+        mrunner(cmds, True, "Updating Overlays", False)
+
     if ext:
         extcfg = dt.parse_uboot()
 
         if dtbos:
+            for i in range(len(dtbos)):
+                dtbos[i] = normalize_filename(i, "dtbo")
+                dtbo_path = utilities.match_filename(
+                    dtbo[i], list(dtb_cache["overlays"].keys())
+                )
+                if dtbo_path is None:
+                    c.message(
+                        [
+                            f'Overlay "{dtbo[i]}" not found on system, refusing to continue.'
+                        ],
+                        "ERROR",
+                    )
+                    return
+
             extcfg["U_BOOT_FDT_OVERLAYS"] = " ".join(dtbos)
         else:
             if "U_BOOT_FDT_OVERLAYS" in extcfg.keys():
@@ -415,7 +479,7 @@ def set_overlays(dtbos: list = []) -> None:
         extcfg = dt.encode_uboot(extcfg)
 
         if not DRYRUN:
-            utilities.elevated_file_write("/etc/default/u-boot", extcfg)
+            c.elevated_file_write("/etc/default/u-boot", extcfg)
         else:
             c.message(
                 [
@@ -555,7 +619,7 @@ def uboot_migrator() -> bool:
         extcfg = dt.encode_uboot(extcfg)
 
         if not DRYRUN:
-            utilities.elevated_file_write("/etc/default/u-boot", extcfg)
+            c.elevated_file_write("/etc/default/u-boot", extcfg)
         else:
             c.message(
                 [
@@ -654,7 +718,7 @@ def dt_manager(cmd: list = []) -> None:
                     print("  +", line)
             elif cmd[0] == "base":
                 if len(cmd) - 1:
-                    pass
+                    set_base_dtb(cmd[1])
                 else:
                     print("\nLive System Tree:")
                     base, overlays = dt.detect_live()
@@ -734,7 +798,7 @@ def dt_manager(cmd: list = []) -> None:
                     preselect = len(matchdt)
                 matchdt.append(tree)
 
-            res = selector(basedt, False, "Select a device Tree", preselect=preselect)
+            res = c.selector(basedt, False, "Select a device Tree", preselect=preselect)
 
             if res is not None:
                 set_base_dtb(matchdt[res])
@@ -774,7 +838,7 @@ def dt_manager(cmd: list = []) -> None:
                     preselect.append(len(matchdt))
                 matchdt.append(tree)
 
-            res = selector(basedt, True, "Select overlays", preselect=preselect)
+            res = c.selector(basedt, True, "Select overlays", preselect=preselect)
 
             if res:
                 dtbos = []
@@ -1174,10 +1238,7 @@ def main_menu():
 
 
 def tui():
-    c.stdscr = curses.initscr()
-    curses.noecho()
-    curses.cbreak()
-    c.stdscr.keypad(True)
+    c.resume()
 
     try:
         main_menu()

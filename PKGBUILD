@@ -10,7 +10,7 @@ license=('GPL3')
 provides=("bredos-config")
 
 depends=('python' 'dtc' 'python-bredos-common')
-optdepends=('u-boot-update')
+optdepends=('u-boot-update: Automatic U-Boot Updates')
 
 source=('sys-config.py' 'bredos-sysconfig.desktop')
 sha256sums=('SKIP' 'SKIP')

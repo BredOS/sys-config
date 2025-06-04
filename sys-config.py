@@ -310,8 +310,8 @@ def set_overlays(dtbos: list = []) -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
 
-    normalized_dtbos = []
-    matched_dtbos = []
+    normalized_dtbos = set()
+    matched_dtbos = set()
     dtb_cache = dt.gencache()
 
     if dtbos:
@@ -579,7 +579,7 @@ def uboot_migrator() -> bool:
             [
                 "sh",
                 "-c",
-                '"pacman -Sy && pacman -S --noconfirm u-boot-update',
+                "pacman -Sy && pacman -S --noconfirm u-boot-update",
             ],
             True,
             "Installing U-Boot Updater",
@@ -640,8 +640,67 @@ def uboot_migrator() -> bool:
     return True
 
 
+def gen_dt_report() -> list:
+    dts = dt.gencache()
+    txt = ["Base Device Trees:"]
+    maxnl = max(len(v["name"]) for v in dts["base"].values())
+    maxde = max(
+        max(
+            len(v["description"] if v["description"] is not None else [])
+            for v in dts["base"].values()
+        ),
+        11,
+    )
+    maxco = max(len(",".join(v["compatible"])) for v in dts["base"].values())
+    txt.append(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
+    for tree in dts["base"].keys():
+        base = dts["base"][tree]
+        name = base["name"]
+        desc = base["description"] or ""
+
+        compat = base["compatible"]
+        if compat:
+            compat_str = '"' + '","'.join(compat) + '"'
+        else:
+            compat_str = ""
+
+        txt.append(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
+    txt += ["", "Overlays:"]
+    maxnl = max(len(v["name"]) for v in dts["overlays"].values())
+    maxde = max(
+        max(
+            len(v["description"] if v["description"] is not None else [])
+            for v in dts["overlays"].values()
+        ),
+        11,
+    )
+    maxco = max(len(",".join(v["compatible"])) for v in dts["overlays"].values())
+    txt.append(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
+    for tree in dts["overlays"].keys():
+        overlay = dts["overlays"][tree]
+        name = overlay["name"]
+        desc = overlay["description"] or ""
+
+        compat = overlay["compatible"]
+        if compat:
+            compat_str = '"' + '","'.join(compat) + '"'
+        else:
+            compat_str = ""
+
+        txt.append(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
+
+    ovs = ["  - " + c for c in dt.identify_overlays()]
+    txt += ["", "Enabled Overlays:"] + ovs
+    txt += ["", "Live System Tree:"]
+    base, overlays = dt.detect_live()
+    txt += [f"Base: {base}", "", "Live Overlay-like entries (diffs):"]
+    for line in overlays:
+        txt.append("  + " + line)
+    return txt
+
+
 def dt_manager(cmd: list = []) -> None:
-    c.message(["Please wait.."], "Generating Device Tree Caches", False)
+    c.message(["Please wait..", ""], "Generating Device Tree Caches", False)
 
     migrated = uboot_migrator()
     if not migrated:
@@ -657,78 +716,19 @@ def dt_manager(cmd: list = []) -> None:
             print("No operations specified.\n\nUsage: list/base/overlay\n")
         else:
             if cmd[0] == "list":
-                print("Base Device Trees:")
-                maxnl = max(len(v["name"]) for v in dts["base"].values())
-                maxde = max(
-                    max(
-                        len(v["description"] if v["description"] is not None else [])
-                        for v in dts["base"].values()
-                    ),
-                    11,
-                )
-                maxco = max(
-                    len(",".join(v["compatible"])) for v in dts["base"].values()
-                )
-                print(
-                    f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE'
-                )
-                for tree in dts["base"].keys():
-                    base = dts["base"][tree]
-                    name = base["name"]
-                    desc = base["description"] or ""
-
-                    compat = base["compatible"]
-                    if compat:
-                        compat_str = '"' + '","'.join(compat) + '"'
-                    else:
-                        compat_str = ""
-
-                    print(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
-                print("\nOverlays:")
-                maxnl = max(len(v["name"]) for v in dts["overlays"].values())
-                maxde = max(
-                    max(
-                        len(v["description"] if v["description"] is not None else [])
-                        for v in dts["overlays"].values()
-                    ),
-                    11,
-                )
-                maxco = max(
-                    len(",".join(v["compatible"])) for v in dts["overlays"].values()
-                )
-                print(
-                    f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE'
-                )
-                for tree in dts["overlays"].keys():
-                    overlay = dts["overlays"][tree]
-                    name = overlay["name"]
-                    desc = overlay["description"] or ""
-
-                    compat = overlay["compatible"]
-                    if compat:
-                        compat_str = '"' + '","'.join(compat) + '"'
-                    else:
-                        compat_str = ""
-
-                    print(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
-                print("\nLive System Tree:")
-                base, overlays = dt.detect_live()
-                print(f"Base: {base} (detected)\n\nOverlay-like entries (diffs):")
-                for line in overlays:
-                    print("  +", line)
-            elif cmd[0] == "base":
-                if len(cmd) - 1:
-                    set_base_dtb(cmd[1])
-                else:
-                    print("\nLive System Tree:")
-                    base, overlays = dt.detect_live()
-                    print(f"Base: {base} (detected)\n\nOverlay-like entries (diffs):")
+                print("\n".join(gen_dt_report()))
             elif cmd[0] == "overlay":
                 if len(cmd) > 1:
                     if cmd[1] == "enable":
-                        pass
+                        existing = dt.identify_overlays()
+                        dtbos = cmd[2:]
+                        existing += dtbos
+                        set_overlays(existing)
                     elif cmd[1] == "disable":
-                        pass
+                        existing = dt.identify_overlays()
+                        dtbos = cmd[2:]
+                        # TODO: DO the LOMGIIII
+                        set_overlays(existing)
                     else:
                         print(
                             "Invalid operation specified.\n\nUsage: enable/disable overlay.dtbo\n"
@@ -848,7 +848,7 @@ def dt_manager(cmd: list = []) -> None:
                 set_overlays(dtbos)
 
         if options[selection] == "View Currently Enabled Trees":
-            pass
+            c.message(gen_dt_report(), "Overlay Information")
 
 
 def hack_pipewire() -> None:
@@ -1243,11 +1243,7 @@ def tui():
     try:
         main_menu()
     finally:
-        c.stdscr.clear()
-        c.stdscr.keypad(False)
-        curses.echo()
-        curses.nocbreak()
-        curses.endwin()
+        c.suspend()
 
 
 # -------------- CLI LOGIC --------------
@@ -1313,6 +1309,9 @@ def main():
     parser.add_argument(
         "--dryrun", action="store_true", help="Simulate running commands (SAFE)."
     )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Simulate running commands (SAFE)."
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     # Admin subcommands
@@ -1350,9 +1349,6 @@ def main():
     pac_sub.add_parser("unlock")
     pac_sub.add_parser("autoremove")
 
-    # Dry-Run
-    pipewire_parser.add_argument("--dry-run", "-d", action="store_true")
-
     # Info
     subparsers.add_parser("info")
 
@@ -1374,7 +1370,7 @@ def main():
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         LOG_FILE = f"bredos-config-{timestamp}.txt"
 
-    if args.dryrun:
+    if args.dryrun or args.dry_run:
         DRYRUN = True
         c.DRYRUN = True
 

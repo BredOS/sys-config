@@ -779,18 +779,6 @@ def dt_manager(cmd: list = []) -> None:
                 print("Invalid operation specified.\n\nUsage: list/base/overlay\n")
         return
 
-    res = c.confirm(
-        [
-            "This command is only for advanced users!",
-            "",
-            "Only continue if you know EXACTLY what you're doing.",
-        ],
-        "Device Tree Management",
-    )
-
-    if not res:
-        return
-
     options = [
         "Set the Base Device Tree",
         "Enable / Disable Overlays",
@@ -839,7 +827,18 @@ def dt_manager(cmd: list = []) -> None:
             res = c.selector(basedt, False, "Select a device Tree", preselect=preselect)
 
             if res is not None:
-                set_base_dtb(matchdt[res])
+                sel = c.confirm(
+                    [
+                        "Confirm the following changes:",
+                        "",
+                        "Base DTB set to:",
+                        matchdt[res],
+                    ],
+                    "Confirm System Changes",
+                )
+
+                if sel:
+                    set_base_dtb(matchdt[res])
 
         if options[selection] == "Enable / Disable Overlays":
             maxnl = max(len(v["name"]) for v in dts["overlays"].values())
@@ -883,7 +882,18 @@ def dt_manager(cmd: list = []) -> None:
                 for i in res:
                     dtbos.append(matchdt[i])
 
-                set_overlays(dtbos)
+                res = c.confirm(
+                    [
+                        "Confirm the following changes:",
+                        "",
+                        "Overlays set to:",
+                    ]
+                    + dtbos,
+                    "Confirm System Changes",
+                )
+
+                if res:
+                    set_overlays(dtbos)
 
         if options[selection] == "View Currently Enabled Trees":
             c.message(gen_dt_report(), "Overlay Information")

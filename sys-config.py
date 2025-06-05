@@ -172,6 +172,23 @@ def mrunner(
     runner(["sh", "-c", cmd], elevate, label, prompt)
 
 
+def elevated_file_write(filepath: str, content: str) -> None:
+    escaped_lines = [
+        '"'
+        + line.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("$", "\\$")
+        .replace("`", "\\`")
+        + '"'
+        for line in content.splitlines()
+    ]
+
+    printf_part = 'printf "%s\\n" ' + " ".join(escaped_lines)
+    full_cmd = f'{printf_part} | tee "{filepath}" > /dev/null'
+
+    runner(["sh", "-c", full_cmd], True, f"Writing {filepath}", False)
+
+
 def debug_info() -> None:
     grub = dt.grub_exists()
     ext = dt.extlinux_exists()
@@ -236,7 +253,7 @@ def set_base_dtb(dtb: str = None) -> None:
             grubcfg = dt.encode_grub(grubcfg)
 
             if not DRYRUN:
-                c.elevated_file_write("/etc/default/grub", grubcfg)
+                elevated_file_write("/etc/default/grub", grubcfg)
             else:
                 c.message(
                     [
@@ -288,7 +305,7 @@ def set_base_dtb(dtb: str = None) -> None:
         extcfg = dt.encode_uboot(extcfg)
 
         if not DRYRUN:
-            c.elevated_file_write("/etc/default/u-boot", extcfg)
+            elevated_file_write("/etc/default/u-boot", extcfg)
         else:
             c.message(
                 [
@@ -422,7 +439,7 @@ def set_overlays(dtbos: list = []) -> None:
                 grubcfg = dt.encode_grub(grubcfg)
 
                 if not DRYRUN:
-                    c.elevated_file_write("/etc/default/grub", grubcfg)
+                    elevated_file_write("/etc/default/grub", grubcfg)
                 else:
                     c.message(
                         [
@@ -479,7 +496,7 @@ def set_overlays(dtbos: list = []) -> None:
         extcfg = dt.encode_uboot(extcfg)
 
         if not DRYRUN:
-            c.elevated_file_write("/etc/default/u-boot", extcfg)
+            elevated_file_write("/etc/default/u-boot", extcfg)
         else:
             c.message(
                 [
@@ -619,7 +636,7 @@ def uboot_migrator() -> bool:
         extcfg = dt.encode_uboot(extcfg)
 
         if not DRYRUN:
-            c.elevated_file_write("/etc/default/u-boot", extcfg)
+            elevated_file_write("/etc/default/u-boot", extcfg)
         else:
             c.message(
                 [

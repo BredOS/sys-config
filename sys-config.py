@@ -475,14 +475,14 @@ def set_overlays(dtbos: list = []) -> None:
 
         if dtbos:
             for i in range(len(dtbos)):
-                dtbos[i] = normalize_filename(i, "dtbo")
+                dtbos[i] = normalize_filename(dtbos[i], "dtbo")
                 dtbo_path = utilities.match_filename(
-                    dtbo[i], list(dtb_cache["overlays"].keys())
+                    dtbos[i], list(dtb_cache["overlays"].keys())
                 )
                 if dtbo_path is None:
                     c.message(
                         [
-                            f'Overlay "{dtbo[i]}" not found on system, refusing to continue.'
+                            f'Overlay "{dtbos[i]}" not found on system, refusing to continue.'
                         ],
                         "ERROR",
                     )

@@ -412,7 +412,7 @@ def set_overlays(dtbos: list = []) -> None:
                 ]
 
                 # Copy base DTB, changes here must be also be performed to set_base_dtb
-                if normalized_dtb == "rk3588s-fydetab-duo.dtb":
+                if base_dtb_normalized == "rk3588s-fydetab-duo.dtb":
                     cmds.append(
                         [
                             "cp",
@@ -421,7 +421,7 @@ def set_overlays(dtbos: list = []) -> None:
                             efidir + "/dtb/base/rk3588s-tablet-12c-linux.dtb",
                         ]
                     )
-                elif normalized_dtb == "rk3588-rock-5b-plus.dtb":
+                elif base_dtb_normalized == "rk3588-rock-5b-plus.dtb":
                     cmds.append(
                         [
                             "cp",
@@ -460,10 +460,17 @@ def set_overlays(dtbos: list = []) -> None:
                 return
 
         # Remove all current DTBOs
-        listing = utilities.ls(efidir + "/dtb/overlays/")
-        listing_str = " ".join(str(p) for p in listing)
+        listing = []
+        listing_str = ""
+        try:
+            listing = utilities.ls(efidir + "/dtb/overlays/")
+            listing_str = " ".join(str(p) for p in listing)
+        except Exception as err:
+            if not DRYRUN:
+                raise err
 
-        cmds = [["rm", "-v", listing_str]]
+        if listing_str:
+            cmds = [["rm", "-v", listing_str]]
 
         for dtbo in matched_dtbos:
             cmds.append(["cp", "-v", dtbo, efidir + "/dtb/overlays/"])
@@ -670,7 +677,7 @@ def gen_dt_report() -> list:
     )
     maxco = max(len(",".join(v["compatible"])) for v in dts["base"].values())
     txt.append(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
-    for tree in dts["base"].keys():
+    for tree in sorted(list(dts["base"].keys())):
         base = dts["base"][tree]
         name = base["name"]
         desc = base["description"] or ""
@@ -693,7 +700,7 @@ def gen_dt_report() -> list:
     )
     maxco = max(len(",".join(v["compatible"])) for v in dts["overlays"].values())
     txt.append(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
-    for tree in dts["overlays"].keys():
+    for tree in sorted(list(dts["overlays"].keys())):
         overlay = dts["overlays"][tree]
         name = overlay["name"]
         desc = overlay["description"] or ""
@@ -809,7 +816,7 @@ def dt_manager(cmd: list = []) -> None:
                 live = str(live)
                 live = live[live.rfind("/") + 1 : live.rfind(".")]
 
-            for tree in dts["base"].keys():
+            for tree in sorted(list(dts["base"].keys())):
                 base = dts["base"][tree]
                 name = base["name"]
 
@@ -859,7 +866,7 @@ def dt_manager(cmd: list = []) -> None:
                 live[i] = str(live[i])
                 live[i] = live[i][live[i].rfind("/") + 1 : live[i].rfind(".")]
 
-            for tree in dts["overlays"].keys():
+            for tree in sorted(list(dts["overlays"].keys())):
                 base = dts["overlays"][tree]
                 name = base["name"]
                 desc = base["description"] or ""

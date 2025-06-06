@@ -295,7 +295,7 @@ def set_base_dtb(dtb: str = None) -> None:
                     ["cp", "-v", matched_dtb, efidir + "/dtb/base/rk3588-rock-5bp.dtb"]
                 )
             cmds.append(["sync", efidir])
-            mrunner(cmds, True, "Performing Changes", False)
+            mrunner(cmds, True, "Performing Changes")
 
     if ext:
         extcfg = dt.parse_uboot()
@@ -375,7 +375,7 @@ def set_overlays(dtbos: list = []) -> None:
                 [
                     "IMPORTANT NOTICE --!!-- IMPORTART NOTICE",
                     "",
-                    "Upon the next reboot UEFI setup is required!",
+                    "Upon the next reboot UEFI setup may be required!",
                     "",
                     "To enter into UEFI setup you can either:",
                     " - Hold down ESC",
@@ -388,8 +388,11 @@ def set_overlays(dtbos: list = []) -> None:
                     "",
                     "And do the following:",
                     "",
-                    ' - Set "Config Table Mode" to "Device Tree"',
+                    ' - Set "Config Table Mode" to "Device Tree" or "Both"',
                     ' - Change "Support DTB override & overlays" to "Enabled"',
+                    "",
+                    "IMPORTANT NOTICE --!!-- IMPORTART NOTICE",
+                    "",
                     "",
                     "Press Y to continue, or N to abort this operation.",
                 ],
@@ -475,7 +478,7 @@ def set_overlays(dtbos: list = []) -> None:
         for dtbo in matched_dtbos:
             cmds.append(["cp", "-v", dtbo, efidir + "/dtb/overlays/"])
 
-        mrunner(cmds, True, "Updating Overlays", False)
+        mrunner(cmds, True, "Updating Overlays")
 
     if ext:
         extcfg = dt.parse_uboot()

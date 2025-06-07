@@ -1299,8 +1299,6 @@ def main_menu():
 
 
 def tui():
-    c.resume()
-
     try:
         main_menu()
     finally:

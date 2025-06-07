@@ -7,7 +7,7 @@ pkgdesc='BredOS System Configurator and Management utility'
 arch=(any)
 url=https://github.com/BredOS/sys-config
 license=('GPL3')
-provides=("bredos-config")
+provides=("bredos-config>=1.2.0")
 
 depends=('python' 'dtc' 'python-bredos-common')
 optdepends=('u-boot-update: Automatic U-Boot Updates')

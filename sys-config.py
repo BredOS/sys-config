@@ -1022,7 +1022,7 @@ def install_recommends() -> None:
         "sh",
         "-c",
         "pacman -Sy && pacman -S --noconfirm --needed"
-        + " webcord-bin"
+        + " legcord-bin"
         + " ayugram-desktop"
         + " thunderbird"
         + " gnome-disk-utility"
@@ -1037,7 +1037,7 @@ def install_recommends() -> None:
         [
             "This will install the following packages:",
             "",
-            " - webcord-bin",
+            " - legcord-bin",
             " - ayugram-desktop",
             " - thunderbird",
             " - gnome-disk-utility",

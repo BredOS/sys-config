@@ -670,52 +670,57 @@ def uboot_migrator() -> bool:
 def gen_dt_report() -> list:
     dts = dt.gencache()
     txt = ["Base Device Trees:"]
-    maxnl = max(len(v["name"]) for v in dts["base"].values())
-    maxde = max(
-        max(
-            len(v["description"] if v["description"] is not None else [])
-            for v in dts["base"].values()
-        ),
-        11,
-    )
-    maxco = max(len(",".join(v["compatible"])) for v in dts["base"].values())
-    txt.append(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
-    for tree in sorted(list(dts["base"].keys())):
-        base = dts["base"][tree]
-        name = base["name"]
-        desc = base["description"] or ""
+    if dts["base"]:
+        maxnl = max(len(v["name"]) for v in dts["base"].values())
+        maxde = max(
+            max(
+                len(v["description"] if v["description"] is not None else [])
+                for v in dts["base"].values()
+            ),
+            11,
+        )
+        maxco = max(len(",".join(v["compatible"])) for v in dts["base"].values())
+        txt.append(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
+        for tree in sorted(list(dts["base"].keys())):
+            base = dts["base"][tree]
+            name = base["name"]
+            desc = base["description"] or ""
 
-        compat = base["compatible"]
-        if compat:
-            compat_str = '"' + '","'.join(compat) + '"'
-        else:
-            compat_str = ""
+            compat = base["compatible"]
+            if compat:
+                compat_str = '"' + '","'.join(compat) + '"'
+            else:
+                compat_str = ""
 
-        txt.append(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
+            txt.append(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
+    else:
+        txt.append("No base DTBs detected on the system.")
     txt += ["", "Overlays:"]
-    maxnl = max(len(v["name"]) for v in dts["overlays"].values())
-    maxde = max(
-        max(
-            len(v["description"] if v["description"] is not None else [])
-            for v in dts["overlays"].values()
-        ),
-        11,
-    )
-    maxco = max(len(",".join(v["compatible"])) for v in dts["overlays"].values())
-    txt.append(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
-    for tree in sorted(list(dts["overlays"].keys())):
-        overlay = dts["overlays"][tree]
-        name = overlay["name"]
-        desc = overlay["description"] or ""
+    if dts["overlays"]:
+        maxnl = max(len(v["name"]) for v in dts["overlays"].values())
+        maxde = max(
+            max(
+                len(v["description"] if v["description"] is not None else [])
+                for v in dts["overlays"].values()
+            ),
+            11,
+        )
+        maxco = max(len(",".join(v["compatible"])) for v in dts["overlays"].values())
+        txt.append(f'{"NAME".ljust(maxnl)} | {"DESCRIPTION".ljust(maxde)} | COMPATIBLE')
+        for tree in sorted(list(dts["overlays"].keys())):
+            overlay = dts["overlays"][tree]
+            name = overlay["name"]
+            desc = overlay["description"] or ""
 
-        compat = overlay["compatible"]
-        if compat:
-            compat_str = '"' + '","'.join(compat) + '"'
-        else:
-            compat_str = ""
+            compat = overlay["compatible"]
+            if compat:
+                compat_str = '"' + '","'.join(compat) + '"'
+            else:
+                compat_str = ""
 
-        txt.append(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
-
+            txt.append(f"{name.ljust(maxnl)} | {desc.ljust(maxde)} | {compat_str}")
+    else:
+        txt.append("No overlays detected on the system.")
     ovs = ["  - " + c for c in dt.identify_overlays()]
     txt += ["", "Enabled Overlays:"] + ovs
     txt += ["", "Live System Tree:"]
@@ -735,7 +740,7 @@ def dt_manager(cmd: list = []) -> None:
 
     dts = dt.gencache()
     if not dts["base"]:
-        c.message(["No Device Trees were detected!"], "Device Tree Manager", True)
+        c.message(["No Device Trees were detected!"], "Device Tree Manager")
         return
 
     if c.stdscr is None:
@@ -851,6 +856,12 @@ def dt_manager(cmd: list = []) -> None:
                     set_base_dtb(matchdt[res])
 
         if options[selection] == "Enable / Disable Overlays":
+            if not dts["overlays"]:
+                c.message(
+                    ["No overlays were detected on the system!"], "Device Tree Manager"
+                )
+                continue
+
             maxnl = max(len(v["name"]) for v in dts["overlays"].values())
             maxde = max(
                 len(v["description"] if v["description"] is not None else [])
@@ -984,7 +995,7 @@ def pacman_integrity() -> None:
 /:.*(missing|Size mismatch|MODIFIED)/ &&
 $0 !~ /\.json|\.conf|\.pac(new|save|orig)/ &&
 $0 !~ /\/\.?(bashrc|bash_profile|zshrc|profile)$/ &&
-$0 !~ /^.*\/etc\/(shells|subgid|subuid|environment|sudoers|passwd|shadow|group|gshadow|fstab|mtab|issue|default\/|skel\/|locale\.gen|ssh\/|libvirt\/)/ &&
+$0 !~ /^.*\/etc\/(shells|subgid|subuid|environment|sudoers|passwd|shadow|group|gshadow|fstab|mtab|issue|default\/|skel\/|locale\.gen|ssh\/|libvirt\/|pacman\.d\/mirrorlist)/ &&
 $0 !~ /\/usr\/share\/(doc|man)|\.cache/ {
     pkg = gensub(/:.*$/, "", 1, $0);
     issues[pkg]++;

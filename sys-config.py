@@ -590,18 +590,6 @@ def uboot_migrator() -> bool:
 
     installed = dt.safe_exists("/usr/bin/u-boot-update")
     if not installed:
-        res = c.confirm(
-            [
-                "Migrating to u-boot-update is required!",
-                "",
-                "Please make sure a system backup is available.",
-                "Press Y to continue, N to abort.",
-            ],
-            "U-Boot-Update Migrator",
-        )
-        if not res:
-            return False
-
         runner(
             [
                 "sh",
@@ -615,6 +603,18 @@ def uboot_migrator() -> bool:
 
     extcfg = dt.parse_uboot()  # Will load defaults if not found
     if extcfg["U_BOOT_IS_SETUP"] == "false":
+        res = c.confirm(
+            [
+                "Migrating to u-boot-update is required!",
+                "",
+                "Please make sure a system backup is available.",
+                "Press Y to continue, N to abort.",
+            ],
+            "U-Boot-Update Migrator",
+        )
+        if not res:
+            return False
+
         oldextcfg = dt.parse_extlinux_conf(
             Path("/boot/extlinux/extlinux.conf").read_text()
         )
@@ -638,7 +638,9 @@ def uboot_migrator() -> bool:
                 del extcfg["U_BOOT_FDT"]
 
         if "fdtoverlays" in label_data:
-            dtbos = label_data["fdtoverlays"].split()
+            dtbos = label_data["fdtoverlays"]
+            for i in range(len(dtbos)):
+                dtbos[i] = normalize_filename(dtbos[i], "dtbo")
             extcfg["U_BOOT_FDT_OVERLAYS"] = " ".join(
                 i.rsplit("/", 1)[-1] for i in dtbos
             )

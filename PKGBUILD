@@ -1,7 +1,7 @@
 # Maintainer: Bill Sideris <bill88t@bredos.org>
 
 pkgname=bredos-sysconfig
-pkgver=1.3.1
+pkgver=1.3.2
 pkgrel=1
 pkgdesc='BredOS System Configurator and Management utility'
 arch=(any)

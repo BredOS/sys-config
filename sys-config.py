@@ -1279,17 +1279,7 @@ def packages_menu() -> None:
 
 
 def main_menu():
-    curses.start_color()
-    curses.use_default_colors()
-    try:
-        curses.init_pair(1, 166, -1)
-    except:
-        try:
-            curses.init_pair(1, curses.COLOR_RED, -1)
-        except:
-            pass
-    c.stdscr.bkgd(" ", curses.color_pair(1))
-    c.stdscr.clear()
+    c.init()
 
     options = ["System Upkeep", "System Tweaks", "Packages", "Debug", "Exit"]
 

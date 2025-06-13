@@ -1,7 +1,7 @@
 # Maintainer: Bill Sideris <bill88t@bredos.org>
 
 pkgname=bredos-sysconfig
-pkgver=1.3.4
+pkgver=1.4.0
 pkgrel=1
 pkgdesc='BredOS System Configurator and Management utility'
 arch=(any)
@@ -9,7 +9,7 @@ url=https://github.com/BredOS/sys-config
 license=('GPL3')
 provides=("bredos-config")
 
-depends=('python' 'dtc' 'python-bredos-common>=1.2.0')
+depends=('python' 'dtc' 'python-bredos-common>=1.3.0')
 optdepends=('u-boot-update: Automatic U-Boot Updates')
 
 source=('sys-config.py' 'bredos-sysconfig.desktop')

@@ -584,6 +584,22 @@ def filesystem_resize() -> None:
         c.message(["This incident will be reported to Santa Claus."], "Pancake spirit")
 
 
+def wipe_journal() -> None:
+    cmd = [
+        "sh",
+        "-c",
+        'journalctl --rotate && journalctl --vacuum-time=1s && echo "Journal wiped."',
+    ]
+    if c.confirm(
+        [
+            "This wipes all system logs, including runtime logs.",
+            "This is a safe operation.",
+        ],
+        "Journal Cleaner",
+    ):
+        runner(cmd, True, "Journal Cleaner")
+
+
 def uboot_migrator() -> bool:
     if (not dt.extlinux_exists()) or dt.booted_with_edk():
         return True  # UEFI system
@@ -1063,7 +1079,6 @@ def install_docker() -> None:
         + " docker"
         + " docker-buildx"
         + " docker-compose"
-        + " docker-compose"
         + " pigz"
         + " && systemctl disable --now systemd-networkd-wait-online"
         + " && systemctl mask systemd-networkd-wait-online"
@@ -1076,7 +1091,6 @@ def install_docker() -> None:
             " - docker",
             " - docker-buildx",
             " - docker-compose",
-            " - docker-compose",
             " - pigz",
             "",
             "Are you sure you wish to continue?",
@@ -1086,38 +1100,61 @@ def install_docker() -> None:
         runner(cmd, True, "Install Docker")
 
 
-def install_steam_any() -> None:
-    cmd = [
-        "sh",
-        "-c",
-        "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-any",
-    ]
-    if c.confirm(
-        [
-            "This will install Steam for ARM, for mainline mesa systems.",
-            "",
-            "Should only be used on RK3588 if you've switched to Panthor graphics.",
-            "Are you sure you wish to continue?",
+def install_steam() -> None:
+    if os.uname().machine == "aarch64":
+        if utilities.arm64_v9_or_later():
+            c.message(
+                [
+                    "Steam on ARMv9 systems is temporarily not supported.",
+                    "",
+                    "Lack of time.",
+                ],
+                "Cannot Install Steam",
+            )
+        elif "rockchip-rk3588-panthor-gpu.dtbo" in dt.identify_overlays():
+            cmd = [
+                "sh",
+                "-c",
+                "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-any",
+            ]
+            if c.confirm(
+                [
+                    "This will install Steam for ARM, for mainline mesa systems.",
+                    "",
+                    "Should only be used on RK3588 if you've switched to Panthor graphics.",
+                    "Are you sure you wish to continue?",
+                ]
+            ):
+                runner(cmd, True, "Install Steam")
+        else:
+            cmd = [
+                "sh",
+                "-c",
+                "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-rk3588",
+            ]
+            if c.confirm(
+                [
+                    "This will install Steam for ARM, suitable for RK3588 systems with Panfork graphics.",
+                    "",
+                    "Panfork is the default BredOS video driver.",
+                    "Are you sure you wish to continue?",
+                ]
+            ):
+                runner(cmd, True, "Install Steam")
+    else:
+        cmd = [
+            "sh",
+            "-c",
+            "pacman -Sy && pacman -S --noconfirm --needed steam",
         ]
-    ):
-        runner(cmd, True, "Install Steam (Any)")
-
-
-def install_steam_panfork() -> None:
-    cmd = [
-        "sh",
-        "-c",
-        "pacman -Sy && pacman -S --noconfirm --needed steam steam-libs-rk3588",
-    ]
-    if c.confirm(
-        [
-            "This will install Steam for ARM, suitable for RK3588 systems with Panfork graphics.",
-            "",
-            "Panfork is the default BredOS video driver.",
-            "Are you sure you wish to continue?",
-        ]
-    ):
-        runner(cmd, True, "Install Steam (RK3588, Panfork graphics)")
+        if c.confirm(
+            [
+                "This will install normal Steam, this will not work on non-x86 systems.",
+                "",
+                "Are you sure you wish to continue?",
+            ]
+        ):
+            runner(cmd, True, "Install Steam")
 
 
 def install_development() -> None:
@@ -1164,6 +1201,132 @@ def install_development() -> None:
         runner(cmd, True, "Install BredOS Development Packages")
 
 
+def install_gnome() -> None:
+    cmd = [
+        "sh",
+        "-c",
+        "pacman -Sy && pacman -S --noconfirm --needed"
+        + " gnome-app-list"
+        + " gnome-autoar"
+        + " gnome-backgrounds"
+        + " gnome-bluetooth-3.0"
+        + " gnome-calculator"
+        + " gnome-characters"
+        + " gnome-clocks"
+        + " gnome-color-manager"
+        + " gnome-control-center"
+        + " gnome-desktop"
+        + " gnome-desktop-4"
+        + " gnome-desktop-common"
+        + " gnome-disk-utility"
+        + " gnome-keybindings"
+        + " gnome-keyring"
+        + " gnome-menus"
+        + " gnome-online-accounts"
+        + " gnome-power-manager"
+        + " gnome-session"
+        + " gnome-settings-daemon"
+        + " gnome-shell"
+        + " gnome-shell-extensions"
+        + " gnome-system-monitor"
+        + " gnome-themes-extra"
+        + " gnome-tweaks"
+        + " gnome-user-share"
+        + " gnome-weather"
+        + " polkit-gnome"
+        + " xdg-desktop-portal-gnome"
+        + " extension-manager"
+        + " evince"
+        + " caribou"
+        + " nautilus"
+        + " nautilus-python"
+        + " libnautilus-extension"
+        + " gdm",
+    ]
+    if c.confirm(
+        [
+            "This will install the following packages:",
+            "",
+            " - gnome-app-list",
+            " - gnome-autoar",
+            " - gnome-backgrounds",
+            " - gnome-bluetooth-3.0",
+            " - gnome-calculator",
+            " - gnome-characters",
+            " - gnome-clocks",
+            " - gnome-color-manager",
+            " - gnome-control-center",
+            " - gnome-desktop",
+            " - gnome-desktop-4",
+            " - gnome-desktop-common",
+            " - gnome-disk-utility",
+            " - gnome-keybindings",
+            " - gnome-keyring",
+            " - gnome-menus",
+            " - gnome-online-accounts",
+            " - gnome-power-manager",
+            " - gnome-session",
+            " - gnome-settings-daemon",
+            " - gnome-shell",
+            " - gnome-shell-extensions",
+            " - gnome-system-monitor",
+            " - gnome-themes-extra",
+            " - gnome-tweaks",
+            " - gnome-user-share",
+            " - gnome-weather",
+            " - polkit-gnome",
+            " - xdg-desktop-portal-gnome",
+            " - extension-manager",
+            " - evince",
+            " - caribou",
+            " - nautilus",
+            " - nautilus-python",
+            " - libnautilus-extension",
+            " - gdm",
+            "",
+            "Are you sure you wish to continue?",
+        ],
+        "Install GNOME Desktop",
+    ):
+        runner(cmd, True, "Install GNOME Desktop")
+
+    if c.confirm(
+        [
+            "Enable the Gnome Display Manager (GDM)?",
+            "",
+            "This will disable your existing Display Manager automatically.",
+        ],
+        "Enable Gnome Display Manager",
+    ):
+        symlink_path = Path("/etc/systemd/system/display-manager.service")
+
+        dewit = False
+        if symlink_path.is_symlink():
+            current_target = symlink_path.resolve().name
+            if current_target != "gdm.service":
+                runner(
+                    ["systemctl", "disable", current_target],
+                    True,
+                    "Disable existing Display Manager",
+                    False,
+                )
+                dewit = True
+        else:
+            dewit = True
+
+        if dewit:
+            runner(["systemctl", "enable", "gdm.service"], True, "Enable GDM", False)
+
+        c.message(
+            [
+                "Done.",
+                "",
+                "Upon the next system restart you will be greeted by GDM and GNOME.",
+            ],
+            "Install GNOME Desktop",
+        )
+
+
 def unlock_pacman() -> None:
     cmd = [
         "bash",
@@ -1201,6 +1364,7 @@ def sys_health_menu():
         "Check & Repair Filesystem",
         "Expand Fileystem",
         "Check Packages Integrity",
+        "Clean the system journal",
         "Manage Device Trees",
         "Main Menu",
     ]
@@ -1220,6 +1384,8 @@ def sys_health_menu():
             filesystem_resize()
         if options[selection] == "Check Packages Integrity":
             pacman_integrity()
+        if options[selection] == "Clean the system journal":
+            wipe_journal()
         if options[selection] == "Manage Device Trees":
             dt_manager()
 
@@ -1244,9 +1410,9 @@ def packages_menu() -> None:
     options = [
         "Install Recommended Desktop Packages",
         "Install Docker",
-        "Install Steam (Any)",
-        "Install Steam (Panfork graphics)",
+        "Install Steam",
         "Install BredOS Development Packages",
+        "Install GNOME Desktop",
         "Unlock Pacman Database",
         "Autoremove Unused packages",
         "Check Packages Integrity",
@@ -1264,12 +1430,12 @@ def packages_menu() -> None:
             install_recommends()
         if options[selection] == "Install Docker":
             install_docker()
-        if options[selection] == "Install Steam (Any)":
-            install_steam_any()
-        if options[selection] == "Install Steam (Panfork graphics)":
-            install_steam_panfork()
+        if options[selection] == "Install Steam":
+            install_steam()
         if options[selection] == "Install BredOS Development Packages":
             install_development()
+        if options[selection] == "Install GNOME Desktop":
+            install_gnome()
         if options[selection] == "Unlock Pacman Database":
             unlock_pacman()
         if options[selection] == "Autoremove Unused packages":
@@ -1318,6 +1484,8 @@ def dp(args):
             filesystem_check()
         elif args.action == "expand":
             filesystem_resize()
+        elif args.action == "journal":
+            wipe_journal()
         elif args.action == "dt":
             dt_manager(cmd=args.cmd)
     elif cmd == "tweaks":
@@ -1331,12 +1499,12 @@ def dp(args):
                 install_recommends()
             elif args.target == "docker":
                 install_docker()
-            elif args.target == "steam-any":
-                install_steam_any()
-            elif args.target == "steam-panfork":
-                install_steam_panfork()
+            elif args.target == "steam":
+                install_steam()
             elif args.target == "development":
                 install_development()
+            elif args.target == "gnome":
+                install_gnome()
         elif args.action == "integrity":
             pacman_integrity()
         elif args.action == "unlock":
@@ -1360,7 +1528,7 @@ def check_root() -> bool:
 
 
 def main():
-    global LOG_FILE, DRYRUN, ROOT_MODE
+    global LOG_FILE, NOCONFIRM, DRYRUN, ROOT_MODE
     parser = argparse.ArgumentParser(prog="bredos-config", description=c.APP_NAME)
     parser.add_argument(
         "--log", action="store_true", help="Log output to bredos-config-<date>.txt"
@@ -1371,6 +1539,12 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", help="Simulate running commands (SAFE)."
     )
+    parser.add_argument(
+        "--noconfirm", action="store_true", help="Do not ask for confirmations."
+    )
+    parser.add_argument(
+        "--no-confirm", action="store_true", help="Do not ask for confirmations."
+    )
     subparsers = parser.add_subparsers(dest="command")
 
     # Admin subcommands
@@ -1379,6 +1553,7 @@ def main():
     fs_sub.add_parser("maintenance")
     fs_sub.add_parser("check")
     fs_sub.add_parser("expand")
+    fs_sub.add_parser("journal")
 
     # Device tree subcommands
     dt_parser = fs_sub.add_parser("dt")
@@ -1401,6 +1576,7 @@ def main():
     install_sub.add_parser("docker")
     install_sub.add_parser("steam")
     install_sub.add_parser("development")
+    install_sub.add_parser("gnome")
     install_sub.add_parser("unlock")
 
     # Packages other actions
@@ -1428,6 +1604,9 @@ def main():
     if args.log:
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         LOG_FILE = f"bredos-config-{timestamp}.txt"
+
+    if args.noconfirm or args.no_confirm:
+        c.NOCONFIRM = True
 
     if args.dryrun or args.dry_run:
         DRYRUN = True

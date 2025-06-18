@@ -1,15 +1,7 @@
 #!/usr/bin/env python
 
-import re
-import os
-import sys
-import time
-import shlex
-import curses
-import shutil
-import argparse
-import textwrap
-import subprocess
+import re, os, sys, time, shlex, curses, shutil
+import argparse, textwrap, subprocess, signal
 from pathlib import Path
 from datetime import datetime
 
@@ -25,6 +17,14 @@ ROOT_MODE = False
 # --------------- RUNNER ----------------
 
 elevator = utilities.Elevator()
+
+
+def handle_stupid(signum=None, frame=None) -> None:
+    pass
+
+
+signal.signal(signal.SIGQUIT, handle_stupid)
+signal.signal(signal.SIGTSTP, handle_stupid)
 
 
 def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
@@ -1005,6 +1005,28 @@ def hack_wol() -> None:
         runner(cmd, True, "Wake On Lan")
 
 
+def hack_gpgme() -> None:
+    cmd = [
+        "bash",
+        "-c",
+        "if [[ -L /usr/lib/libgpgme.so.11 ]]; then "
+        + 'echo "Removing symlink.."; rm /usr/lib/libgpgme.so.11; '
+        + "elif [[ -e /usr/lib/libgpgme.so.11 ]]; then "
+        + 'echo "File exists and is not a symlink. Doing nothing."; '
+        + "else "
+        + 'echo "Creating symlink.."; ln -s /usr/lib/libgpgme.so /usr/lib/libgpgme.so.11; '
+        + "fi",
+    ]
+    if c.confirm(
+        [
+            "This hack applies / removes a gnupg fix to counter ALARM's stupidity.",
+            "This should be removed once ALARM updates.",
+        ],
+        "ALARM IS STUPID",
+    ):
+        runner(cmd, True, "ALARM IS STUPID")
+
+
 def pacman_integrity() -> None:
     cmd = [
         "sh",
@@ -1391,7 +1413,7 @@ def sys_health_menu():
 
 
 def sys_tweaks_menu() -> None:
-    options = ["Pipewire CPU fix", "Wake On Lan", "Main Menu"]
+    options = ["Pipewire CPU fix", "Wake On Lan", "Apply GNUPG ALARM fix", "Main Menu"]
 
     while True:
         selection = c.draw_menu("System Tweaks", options)
@@ -1404,6 +1426,8 @@ def sys_tweaks_menu() -> None:
             hack_pipewire()
         if options[selection] == "Wake On Lan":
             hack_wol()
+        if options[selection] == "Apply GNUPG ALARM fix":
+            hack_gpgme()
 
 
 def packages_menu() -> None:
@@ -1493,6 +1517,8 @@ def dp(args):
             hack_pipewire()
         if args.target == "wol":
             hack_wol()
+        if args.target == "gpgme":
+            hack_gpgme()
     elif cmd == "packages":
         if args.action == "install":
             if args.target == "recommends":
@@ -1564,6 +1590,7 @@ def main():
     hack_sub = hack_parser.add_subparsers(dest="target")
     pipewire_parser = hack_sub.add_parser("pipewire")
     pipewire_parser = hack_sub.add_parser("wol")
+    pipewire_parser = hack_sub.add_parser("gpgme")
 
     # Packages
     pac_parser = subparsers.add_parser("packages")

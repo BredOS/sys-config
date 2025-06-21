@@ -1413,7 +1413,12 @@ def sys_health_menu():
 
 
 def sys_tweaks_menu() -> None:
-    options = ["Pipewire CPU fix", "Wake On Lan", "Apply GNUPG ALARM fix", "Main Menu"]
+    options = [
+        "General: Pipewire CPU fix",
+        "General: Wake On Lan",
+        "ARM: Apply GNUPG fix",
+        "Main Menu",
+    ]
 
     while True:
         selection = c.draw_menu("System Tweaks", options)

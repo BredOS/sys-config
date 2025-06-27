@@ -706,7 +706,7 @@ def gen_dt_report() -> list:
 
             compat = base["compatible"]
             if compat:
-                compat_str = '"' + '","'.join(compat) + '"'
+                compat_str = " ".join(compat)
             else:
                 compat_str = ""
 
@@ -732,7 +732,7 @@ def gen_dt_report() -> list:
 
             compat = overlay["compatible"]
             if compat:
-                compat_str = '"' + '","'.join(compat) + '"'
+                compat_str = " ".join(compat)
             else:
                 compat_str = ""
 
@@ -848,7 +848,7 @@ def dt_manager(cmd: list = []) -> None:
 
                 compat = base["compatible"]
                 if compat:
-                    compat_str = '"' + '","'.join(compat) + '"'
+                    compat_str = " ".join(compat)
                 else:
                     compat_str = ""
 
@@ -905,7 +905,7 @@ def dt_manager(cmd: list = []) -> None:
 
                 compat = base["compatible"]
                 if compat:
-                    compat_str = '"' + '","'.join(compat) + '"'
+                    compat_str = " ".join(compat)
                 else:
                     compat_str = ""
 

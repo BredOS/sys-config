@@ -1001,10 +1001,14 @@ WantedBy=default.target
     if service_path.exists():
         if c.confirm(["Remove the hack?"], "Pipewire CPU Fix") and not DRYRUN:
             service_path.unlink()
+        else:
+            return
     else:
         if c.confirm(["Apply the hack?"], "Pipewire CPU Fix") and not DRYRUN:
             service_path.parent.mkdir(parents=True, exist_ok=True)
             service_path.write_text(service_content)
+        else:
+            return
         res = True
 
     c.message(
@@ -1451,11 +1455,11 @@ def sys_tweaks_menu() -> None:
 
         c.stdscr.clear()
         c.stdscr.refresh()
-        if options[selection] == "Pipewire CPU fix":
+        if options[selection] == "General: Pipewire CPU fix":
             hack_pipewire()
-        if options[selection] == "Wake On Lan":
+        if options[selection] == "General: Wake On Lan":
             hack_wol()
-        if options[selection] == "Apply GNUPG ALARM fix":
+        if options[selection] == "ARM: Apply GNUPG ALARM fix":
             hack_gpgme()
 
 

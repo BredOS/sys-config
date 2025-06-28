@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import re, os, sys, time, shlex, curses, shutil
-import argparse, textwrap, subprocess, signal
+import argparse, subprocess, signal
 from pathlib import Path
 from datetime import datetime
 
@@ -66,30 +66,34 @@ def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
         try:
             y = 3
             ym = 0
+            xm = None
             limit = 0
             if c.stdscr is not None:
                 c.stdscr.clear()
                 c.stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
                 c.draw_border()
-                ym, _ = c.stdscr.getmaxyx()
+                ym, xm = c.stdscr.getmaxyx()
                 limit = int(ym) - 2
                 c.stdscr.refresh()
-            for line in proc.stdout:
-                if "[[EOC]]" in line:
-                    break
-                if c.stdscr is not None:
-                    if y < limit:
-                        c.stdscr.addstr(y if y <= limit else limit, 2, line)
+            clines = []
+            for uline in proc.stdout:
+                clines = [uline] if c.stdscr is None else c.lw([uline], xm)
+                for line in clines:
+                    if "[[EOC]]" in line:
+                        break
+                    if c.stdscr is not None:
+                        if y < limit:
+                            c.stdscr.addstr(y if y <= limit else limit, 2, line)
+                        else:
+                            for i in range(3, limit):
+                                c.clear_line(i)
+                                c.stdscr.addstr(i, 2, output[y - limit - 3 + i][:-1])
+                        y += 1
+                        c.draw_border()
+                        c.stdscr.refresh()
                     else:
-                        for i in range(3, limit):
-                            clear_line(i)
-                            c.stdscr.addstr(i, 2, output[y - limit - 3 + i][:-1])
-                    y += 1
-                    c.draw_border()
-                    c.stdscr.refresh()
-                else:
-                    print(line, end="")
-                output.append(line)
+                        print(line, end="")
+                    output.append(line)
             proc.wait()
         except KeyboardInterrupt:
             try:
@@ -203,6 +207,11 @@ def debug_info() -> None:
         ],
         "Debug Information",
     )
+    # runner(
+    #     ["ping", "-c", "2", "feline.gr"],
+    #     False,
+    #     "test wrapping",
+    # )
 
 
 def normalize_filename(filename: str, extension: str) -> str:
@@ -598,6 +607,18 @@ def wipe_journal() -> None:
         "Journal Cleaner",
     ):
         runner(cmd, True, "Journal Cleaner")
+
+
+def mkinit() -> None:
+    cmd = ["sh", "-c", "mkinitcpio -P"]
+    if c.confirm(
+        [
+            "This will regenerate mkinitcpio.",
+            "Unless something is broken, this is a safe operation.",
+        ],
+        "Regenerate mkinitcpio",
+    ):
+        runner(cmd, True, "Regenerate mkinitcpio")
 
 
 def uboot_migrator() -> bool:
@@ -1387,6 +1408,7 @@ def sys_health_menu():
         "Expand Fileystem",
         "Check Packages Integrity",
         "Clean the system journal",
+        "Regenerate mkinitcpio",
         "Manage Device Trees",
         "Main Menu",
     ]
@@ -1408,6 +1430,8 @@ def sys_health_menu():
             pacman_integrity()
         if options[selection] == "Clean the system journal":
             wipe_journal()
+        if options[selection] == "Regenerate mkinitcpio":
+            mkinit()
         if options[selection] == "Manage Device Trees":
             dt_manager()
 
@@ -1515,6 +1539,8 @@ def dp(args):
             filesystem_resize()
         elif args.action == "journal":
             wipe_journal()
+        elif args.action == "mkinitcpio":
+            mkinit()
         elif args.action == "dt":
             dt_manager(cmd=args.cmd)
     elif cmd == "tweaks":
@@ -1585,6 +1611,7 @@ def main():
     fs_sub.add_parser("check")
     fs_sub.add_parser("expand")
     fs_sub.add_parser("journal")
+    fs_sub.add_parser("mkinitcpio")
 
     # Device tree subcommands
     dt_parser = fs_sub.add_parser("dt")

@@ -76,10 +76,12 @@ def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
                 limit = int(ym) - 2
                 c.stdscr.refresh()
             clines = []
+            eoc = False
             for uline in proc.stdout:
                 clines = [uline] if c.stdscr is None else c.lw([uline], xm)
                 for line in clines:
                     if "[[EOC]]" in line:
+                        eoc = True
                         break
                     if c.stdscr is not None:
                         if y < limit:
@@ -94,6 +96,8 @@ def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
                     else:
                         print(line, end="")
                     output.append(line)
+                if eoc:
+                    break
             proc.wait()
         except KeyboardInterrupt:
             try:
@@ -207,11 +211,11 @@ def debug_info() -> None:
         ],
         "Debug Information",
     )
-    # runner(
-    #     ["ping", "-c", "2", "feline.gr"],
-    #     False,
-    #     "test wrapping",
-    # )
+    runner(
+        ["ping", "-c", "4", "feline.gr"],
+        True,
+        "test wrapping",
+    )
 
 
 def normalize_filename(filename: str, extension: str) -> str:
@@ -623,6 +627,55 @@ def mkinit() -> None:
 
 def migrate_cpio() -> None:
     c.message(["Migration between mkinitcpio & dracut not yet supported"], "Error")
+
+
+def pacman_sync() -> None:
+    res = False
+    hook_path = Path("/usr/share/libalpm/hooks/ZZ-sync.hook")
+
+    if hook_path.exists():
+        if c.confirm(["Remove the hook?"], "Pacman Sync Hook"):
+            runner(
+                ["sh", "-c", f"rm {hook_path!s}"],
+                True,
+                "Removing Pacman Sync Hook",
+            )
+        else:
+            return
+    else:
+        if c.confirm(["Install the hook?"], "Pacman Sync Hook"):
+            cmds = [
+                f"mkdir -p {hook_path.parent}",
+                f"echo '[Trigger]' > {hook_path}",
+                f"echo 'Operation = Install' >> {hook_path}",
+                f"echo 'Operation = Upgrade' >> {hook_path}",
+                f"echo 'Operation = Remove' >> {hook_path}",
+                f"echo 'Type = Package' >> {hook_path}",
+                f"echo 'Target = *' >> {hook_path}",
+                f"echo '' >> {hook_path}",
+                f"echo '[Action]' >> {hook_path}",
+                f"echo 'Description = Flushing file system buffers...' >> {hook_path}",
+                f"echo 'When = PostTransaction' >> {hook_path}",
+                f"echo 'Exec = /bin/sh' >> {hook_path}",
+                f"echo \"Args = -c 'sync; sync; sync'\" >> {hook_path}",
+            ]
+            mrunner(
+                cmds,
+                True,
+                "Installing Pacman Sync Hook",
+            )
+            print("exited")
+        else:
+            return
+        res = True
+
+    c.message(
+        [
+            "Pacman Sync Hook " + ("installed" if res else "removed") + ".",
+            "Will run on every Pacman transaction.",
+        ],
+        "Pacman Sync Hook",
+    )
 
 
 def uboot_migrator() -> bool:
@@ -1451,6 +1504,7 @@ def sys_tweaks_menu() -> None:
     options = [
         "General: Pipewire CPU fix",
         "General: Wake On Lan",
+        "General: Install Pacman Sync hook",
         "ARM: Apply GNUPG fix",
         "Main Menu",
     ]
@@ -1466,6 +1520,8 @@ def sys_tweaks_menu() -> None:
             hack_pipewire()
         if options[selection] == "General: Wake On Lan":
             hack_wol()
+        if options[selection] == "General: Install Pacman Sync hook":
+            pacman_sync()
         if options[selection] == "ARM: Apply GNUPG ALARM fix":
             hack_gpgme()
 
@@ -1563,6 +1619,9 @@ def dp(args):
             hack_wol()
         if args.target == "gpgme":
             hack_gpgme()
+        if args.target == "pacmansync":
+            pacman_sync()
+
     elif cmd == "packages":
         if args.action == "install":
             if args.target == "recommends":

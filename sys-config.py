@@ -616,9 +616,13 @@ def mkinit() -> None:
             "This will regenerate mkinitcpio.",
             "Unless something is broken, this is a safe operation.",
         ],
-        "Regenerate mkinitcpio",
+        "Regenerate initcpio",
     ):
-        runner(cmd, True, "Regenerate mkinitcpio")
+        runner(cmd, True, "Regenerate initcpio")
+
+
+def migrate_cpio() -> None:
+    c.message(["Migration between mkinitcpio & dracut not yet supported"], "Error")
 
 
 def uboot_migrator() -> bool:
@@ -1412,7 +1416,8 @@ def sys_health_menu():
         "Expand Fileystem",
         "Check Packages Integrity",
         "Clean the system journal",
-        "Regenerate mkinitcpio",
+        "Regenerate initcpio",
+        "Migrate initcpio",
         "Manage Device Trees",
         "Main Menu",
     ]
@@ -1434,8 +1439,10 @@ def sys_health_menu():
             pacman_integrity()
         if options[selection] == "Clean the system journal":
             wipe_journal()
-        if options[selection] == "Regenerate mkinitcpio":
+        if options[selection] == "Regenerate initcpio":
             mkinit()
+        if options[selection] == "Migrate initcpio":
+            migrate_cpio()
         if options[selection] == "Manage Device Trees":
             dt_manager()
 
@@ -1543,8 +1550,10 @@ def dp(args):
             filesystem_resize()
         elif args.action == "journal":
             wipe_journal()
-        elif args.action == "mkinitcpio":
+        elif args.action == "initcpio":
             mkinit()
+        elif args.action == "migratecpio":
+            migrate_cpio()
         elif args.action == "dt":
             dt_manager(cmd=args.cmd)
     elif cmd == "tweaks":
@@ -1615,7 +1624,8 @@ def main():
     fs_sub.add_parser("check")
     fs_sub.add_parser("expand")
     fs_sub.add_parser("journal")
-    fs_sub.add_parser("mkinitcpio")
+    fs_sub.add_parser("initcpio")
+    fs_sub.add_parser("migratecpio")
 
     # Device tree subcommands
     dt_parser = fs_sub.add_parser("dt")
@@ -1624,9 +1634,10 @@ def main():
     # Hacks
     hack_parser = subparsers.add_parser("tweaks")
     hack_sub = hack_parser.add_subparsers(dest="target")
-    pipewire_parser = hack_sub.add_parser("pipewire")
-    pipewire_parser = hack_sub.add_parser("wol")
-    pipewire_parser = hack_sub.add_parser("gpgme")
+    hack_sub.add_parser("pipewire")
+    hack_sub.add_parser("wol")
+    hack_sub.add_parser("gpgme")
+    hack_sub.add_parser("pacmansync")
 
     # Packages
     pac_parser = subparsers.add_parser("packages")
@@ -1655,7 +1666,7 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "health" and args.action is None:
+    if args.command == "upkeep" and args.action is None:
         fs_parser.print_help()
         sys.exit(1)
 

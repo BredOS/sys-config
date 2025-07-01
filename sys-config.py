@@ -643,48 +643,47 @@ def migrate_cpio() -> None:
 
 
 def pacman_sync() -> None:
-    res = False
     hook_path = Path("/usr/share/libalpm/hooks/ZZ-sync.hook")
+    exists = hook_path.exists()
 
-    if hook_path.exists():
-        if c.confirm(["Remove the hook?"], "Pacman Sync Hook"):
+    if c.confirm(
+        [
+            ("Remove" if exists else "Install") + " the pacman sync hook?",
+            "",
+            "This hook will automatically sync all filesystems after every transaction.",
+            "This takes time but should result to less damage if power is lost after updates.",
+            "This is a safe operation.",
+        ],
+        "Pacman Sync Hook",
+    ):
+        if exists:
             runner(
                 ["sh", "-c", f"rm {hook_path!s}"],
                 True,
-                "Removing Pacman Sync Hook",
+                "Pacman Sync Hook",
+                False,
             )
         else:
-            return
-    else:
-        if c.confirm(["Install the hook?"], "Pacman Sync Hook"):
             hook_content = (
-                "[Trigger]\\n"
-                "Operation = Install\\n"
-                "Operation = Upgrade\\n"
-                "Operation = Remove\\n"
-                "Type = Package\\n"
-                "Target = *\\n"
-                "\\n"
-                "[Action]\\n"
-                "Description = Flushing file system buffers...\\n"
-                "When = PostTransaction\\n"
-                "Exec = /bin/sh -c 'sync; sync; sync'\\n"
+                "[Trigger]\n"
+                "Operation = Install\n"
+                "Operation = Upgrade\n"
+                "Operation = Remove\n"
+                "Type = Package\n"
+                "Target = *\n"
+                "\n"
+                "[Action]\n"
+                "Description = Flushing file system buffers...\n"
+                "When = PostTransaction\n"
+                "Exec = /bin/sh -c 'sync; sync; sync'\n"
             )
 
-            runner(
-                ["sh", "-c", f"printf '{hook_content}\\n' > {hook_path}"],
-                True,
-                "Installing Pacman Sync Hook",
-            )
-        else:
-            return
-        res = True
+            elevated_file_write(hook_path, hook_content)
+    else:
+        return
 
     c.message(
-        [
-            "Pacman Sync Hook " + ("installed" if res else "removed") + ".",
-            "Will run on every Pacman transaction.",
-        ],
+        ["Pacman Sync Hook " + ("removed" if exists else "installed") + "."],
         "Pacman Sync Hook",
     )
 
@@ -1495,7 +1494,7 @@ def sys_tweaks_menu() -> None:
         {
             "General: Pipewire CPU fix": hack_pipewire,
             "General: Wake On Lan": hack_wol,
-            "General: Install Pacman Sync hook": pacman_sync,
+            "General: Pacman Sync hook": pacman_sync,
             "ARM: Apply GNUPG fix": hack_gpgme,
         },
     )

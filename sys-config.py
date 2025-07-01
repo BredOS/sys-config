@@ -1472,7 +1472,7 @@ def autoremove() -> None:
         runner(cmd, True, "Remove Unused Packages")
 
 
-def sys_health_menu():
+def upkeep_menu():
     c.menu(
         "System Upkeep",
         {
@@ -1488,7 +1488,7 @@ def sys_health_menu():
     )
 
 
-def sys_tweaks_menu() -> None:
+def tweaks_menu() -> None:
     c.menu(
         "System Tweaks",
         {
@@ -1521,8 +1521,8 @@ def main_menu():
     c.menu(
         c.APP_NAME,
         {
-            "System Upkeep": sys_health_menu,
-            "System Tweaks": sys_tweaks_menu,
+            "System Upkeep": upkeep_menu,
+            "System Tweaks": tweaks_menu,
             "Packages": packages_menu,
             "Debug": debug_info,
         },

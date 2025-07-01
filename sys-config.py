@@ -644,27 +644,25 @@ def pacman_sync() -> None:
             return
     else:
         if c.confirm(["Install the hook?"], "Pacman Sync Hook"):
-            cmds = [
-                f"mkdir -p {hook_path.parent}",
-                f"echo '[Trigger]' > {hook_path}",
-                f"echo 'Operation = Install' >> {hook_path}",
-                f"echo 'Operation = Upgrade' >> {hook_path}",
-                f"echo 'Operation = Remove' >> {hook_path}",
-                f"echo 'Type = Package' >> {hook_path}",
-                f"echo 'Target = *' >> {hook_path}",
-                f"echo '' >> {hook_path}",
-                f"echo '[Action]' >> {hook_path}",
-                f"echo 'Description = Flushing file system buffers...' >> {hook_path}",
-                f"echo 'When = PostTransaction' >> {hook_path}",
-                f"echo 'Exec = /bin/sh' >> {hook_path}",
-                f"echo \"Args = -c 'sync; sync; sync'\" >> {hook_path}",
-            ]
-            mrunner(
-                cmds,
+            hook_content = (
+                "[Trigger]\\n"
+                "Operation = Install\\n"
+                "Operation = Upgrade\\n"
+                "Operation = Remove\\n"
+                "Type = Package\\n"
+                "Target = *\\n"
+                "\\n"
+                "[Action]\\n"
+                "Description = Flushing file system buffers...\\n"
+                "When = PostTransaction\\n"
+                "Exec = /bin/sh -c 'sync; sync; sync'\\n"
+            )
+
+            runner(
+                ["sh", "-c", f"printf '{hook_content}\\n' > {hook_path}"],
                 True,
                 "Installing Pacman Sync Hook",
             )
-            print("exited")
         else:
             return
         res = True

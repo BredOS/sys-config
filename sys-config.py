@@ -50,7 +50,22 @@ def cmdr(cmd: list, elevate: bool = False, label: str = None) -> str:
             if c.stdscr is not None:
                 c.suspend()
             print("Authenticating..")
-        proc_cm = elevator.run(" ".join(shlex.quote(part) for part in cmd))
+        try:
+            proc_cm = elevator.run(" ".join(shlex.quote(part) for part in cmd))
+        except RuntimeError:
+            if auth:
+                if c.stdscr is not None:
+                    c.stdscr.addstr(
+                        1,
+                        2,
+                        "Authentication Failed!",
+                        curses.A_BOLD | curses.A_UNDERLINE,
+                    )
+                    c.resume()
+                    c.draw_border()
+                else:
+                    print("Authentication Failed!")
+                return
         if auth and c.stdscr is not None:
             c.resume()
     else:
@@ -377,8 +392,6 @@ def set_overlays(dtbos: list = []) -> None:
                     [f'Overlay "{i}" failed to match, refusing to continue.'], "ERROR"
                 )
                 return
-
-    # c.message(["Dtbos:"] + dtbos + ["", "Normalized:"] + normalized_dtbos + ["", "Matched:"] + matched_dtbos, "test")
 
     if grub:
         efidir = dt.detect_efidir()
@@ -1461,125 +1474,61 @@ def autoremove() -> None:
 
 
 def sys_health_menu():
-    options = [
-        "Perform Filesystem Maintenance",
-        "Check & Repair Filesystem",
-        "Expand Fileystem",
-        "Check Packages Integrity",
-        "Clean the system journal",
-        "Regenerate initcpio",
-        "Migrate initcpio",
-        "Manage Device Trees",
-        "Main Menu",
-    ]
-
-    while True:
-        selection = c.draw_menu("Filesystem", options)
-        if selection is None or options[selection] == "Main Menu":
-            return
-
-        c.stdscr.clear()
-        c.stdscr.refresh()
-        if options[selection] == "Perform Filesystem Maintenance":
-            filesystem_maint()
-        if options[selection] == "Check & Repair Filesystem":
-            filesystem_check()
-        if options[selection] == "Expand Fileystem":
-            filesystem_resize()
-        if options[selection] == "Check Packages Integrity":
-            pacman_integrity()
-        if options[selection] == "Clean the system journal":
-            wipe_journal()
-        if options[selection] == "Regenerate initcpio":
-            mkinit()
-        if options[selection] == "Migrate initcpio":
-            migrate_cpio()
-        if options[selection] == "Manage Device Trees":
-            dt_manager()
+    c.menu(
+        "System Upkeep",
+        {
+            "Perform Filesystem Maintenance": filesystem_maint,
+            "Check & Repair Filesystem": filesystem_check,
+            "Expand Fileystem": filesystem_resize,
+            "Check Packages Integrity": pacman_integrity,
+            "Clean the system journal": wipe_journal,
+            "Regenerate initcpio": mkinit,
+            "Migrate initcpio": migrate_cpio,
+            "Manage Device Trees": dt_manager,
+        },
+    )
 
 
 def sys_tweaks_menu() -> None:
-    options = [
-        "General: Pipewire CPU fix",
-        "General: Wake On Lan",
-        "General: Install Pacman Sync hook",
-        "ARM: Apply GNUPG fix",
-        "Main Menu",
-    ]
-
-    while True:
-        selection = c.draw_menu("System Tweaks", options)
-        if selection is None or options[selection] == "Main Menu":
-            return
-
-        c.stdscr.clear()
-        c.stdscr.refresh()
-        if options[selection] == "General: Pipewire CPU fix":
-            hack_pipewire()
-        if options[selection] == "General: Wake On Lan":
-            hack_wol()
-        if options[selection] == "General: Install Pacman Sync hook":
-            pacman_sync()
-        if options[selection] == "ARM: Apply GNUPG ALARM fix":
-            hack_gpgme()
+    c.menu(
+        "System Tweaks",
+        {
+            "General: Pipewire CPU fix": hack_pipewire,
+            "General: Wake On Lan": hack_wol,
+            "General: Install Pacman Sync hook": pacman_sync,
+            "ARM: Apply GNUPG fix": hack_gpgme,
+        },
+    )
 
 
 def packages_menu() -> None:
-    options = [
-        "Install Recommended Desktop Packages",
-        "Install Docker",
-        "Install Steam",
-        "Install BredOS Development Packages",
-        "Install GNOME Desktop",
-        "Unlock Pacman Database",
-        "Autoremove Unused packages",
-        "Check Packages Integrity",
-        "Main Menu",
-    ]
-
-    while True:
-        selection = c.draw_menu("Packages", options)
-        if selection is None or options[selection] == "Main Menu":
-            return
-
-        c.stdscr.clear()
-        c.stdscr.refresh()
-        if options[selection] == "Install Recommended Desktop Packages":
-            install_recommends()
-        if options[selection] == "Install Docker":
-            install_docker()
-        if options[selection] == "Install Steam":
-            install_steam()
-        if options[selection] == "Install BredOS Development Packages":
-            install_development()
-        if options[selection] == "Install GNOME Desktop":
-            install_gnome()
-        if options[selection] == "Unlock Pacman Database":
-            unlock_pacman()
-        if options[selection] == "Autoremove Unused packages":
-            autoremove()
-        if options[selection] == "Check Packages Integrity":
-            pacman_integrity()
+    c.menu(
+        "Packages",
+        {
+            "Install Recommended Desktop Packages": install_recommends,
+            "Install Docker": install_docker,
+            "Install Steam": install_steam,
+            "Install BredOS Development Packages": install_development,
+            "Install GNOME Desktop": install_gnome,
+            "Unlock Pacman Database": unlock_pacman,
+            "Autoremove Unused packages": autoremove,
+            "Check Packages Integrity": pacman_integrity,
+        },
+    )
 
 
 def main_menu():
     c.init()
-
-    options = ["System Upkeep", "System Tweaks", "Packages", "Debug", "Exit"]
-
-    while True:
-        selection = c.draw_menu(c.APP_NAME, options)
-        if selection is None or options[selection] == "Exit":
-            return
-
-        if options[selection] == "System Upkeep":
-            sys_health_menu()
-        if options[selection] == "System Tweaks":
-            sys_tweaks_menu()
-        if options[selection] == "Packages":
-            packages_menu()
-        if options[selection] == "Debug":
-            debug_info()
+    c.menu(
+        c.APP_NAME,
+        {
+            "System Upkeep": sys_health_menu,
+            "System Tweaks": sys_tweaks_menu,
+            "Packages": packages_menu,
+            "Debug": debug_info,
+        },
+        "Exit",
+    )
 
 
 def tui():

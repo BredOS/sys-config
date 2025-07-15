@@ -628,14 +628,21 @@ def wipe_journal() -> None:
 
 def mkinit() -> None:
     cmd = ["sh", "-c", "mkinitcpio -P"]
+
+    # Detect dracut
+    dracut_path = shutil.which("dracut-rebuild")
+    if dracut_path:
+        cmd.clear()
+        cmd += ["sh", "-c", "dracut-rebuild"]
+
     if c.confirm(
         [
-            "This will regenerate mkinitcpio.",
+            "This will regenerate InitCPIO.",
             "Unless something is broken, this is a safe operation.",
         ],
-        "Regenerate initcpio",
+        "Regenerate InitCPIO",
     ):
-        runner(cmd, True, "Regenerate initcpio")
+        runner(cmd, True, "Regenerate InitCPIO")
 
 
 def migrate_cpio() -> None:

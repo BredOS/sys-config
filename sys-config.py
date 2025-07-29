@@ -318,6 +318,15 @@ def set_base_dtb(dtb: str = None) -> None:
                         efidir + "/dtb/base/rk3588s-tablet-12c-linux.dtb",
                     ]
                 )
+            elif normalized_dtb == "rk3588-firefly-itx-3588j.dtb":
+                cmds.append(
+                    [
+                        "cp",
+                        "-v",
+                        matched_dtb,
+                        efidir + "/dtb/base/itx-3588j.dtb",
+                    ]
+                )
             elif normalized_dtb == "rk3588-rock-5b-plus.dtb":
                 cmds.append(
                     ["cp", "-v", matched_dtb, efidir + "/dtb/base/rk3588-rock-5bp.dtb"]
@@ -457,6 +466,15 @@ def set_overlays(dtbos: list = []) -> None:
                             "-v",
                             base_dtb_path,
                             efidir + "/dtb/base/rk3588-rock-5bp.dtb",
+                        ]
+                    )
+                elif normalized_dtb == "rk3588-firefly-itx-3588j.dtb":
+                    cmds.append(
+                        [
+                            "cp",
+                            "-v",
+                            base_dtb_path,
+                            efidir + "/dtb/base/itx-3588j.dtb",
                         ]
                     )
                 cmds.append(["sync", efidir])

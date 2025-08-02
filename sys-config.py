@@ -146,11 +146,11 @@ def tui_runner(
     c.stdscr.clear()
     c.draw_border()
     c.stdscr.addstr(1, 2, label, curses.A_BOLD | curses.A_UNDERLINE)
-    c.stdscr.addstr(
-        4,
-        2,
-        ("#" if elevate else "$") + " " + " ".join(cmd if not elevate else cmd[1:]),
-    )
+    # c.stdscr.addstr(
+    #     4,
+    #     2,
+    #     ("#" if elevate else "$") + " " + " ".join(cmd if not elevate else cmd[1:]),
+    # )
     c.stdscr.refresh()
 
     output = cmdr(cmd, elevate, label)

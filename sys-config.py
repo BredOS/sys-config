@@ -1219,6 +1219,7 @@ def install_docker() -> None:
         + " docker-buildx"
         + " docker-compose"
         + " pigz"
+        + " criu"
         + " && systemctl disable --now systemd-networkd-wait-online"
         + " && systemctl mask systemd-networkd-wait-online"
         + " && systemctl enable --now docker",
@@ -1231,6 +1232,7 @@ def install_docker() -> None:
             " - docker-buildx",
             " - docker-compose",
             " - pigz",
+            " - criu",
             "",
             "Are you sure you wish to continue?",
         ],

@@ -1584,6 +1584,10 @@ def tui():
 def dp(args):
     cmd = args.command
 
+    if cmd == "dt":
+        dt_manager(cmd=args.cmd)
+    elif cmd == "updater":
+        updater()
     if cmd == "upkeep":
         if args.action == "maintenance":
             filesystem_maint()
@@ -1595,20 +1599,18 @@ def dp(args):
             wipe_journal()
         elif args.action == "initcpio":
             mkinit()
-        elif args.action == "migratecpio":
-            migrate_cpio()
-        elif args.action == "dt":
-            dt_manager(cmd=args.cmd)
     elif cmd == "tweaks":
         if args.target == "pipewire":
             hack_pipewire()
-        if args.target == "wol":
+        elif args.target == "wol":
             hack_wol()
-        if args.target == "gpgme":
-            hack_gpgme()
-        if args.target == "pacmansync":
+        elif args.target == "pacmansync":
             pacman_sync()
-
+        elif args.target == "gpgme":
+            hack_gpgme()
+    elif cmd == "migrations":
+        if args.action == "cpio":
+            migrate_cpio()
     elif cmd == "packages":
         if args.action == "install":
             if args.target == "recommends":
@@ -1621,14 +1623,14 @@ def dp(args):
                 install_development()
             elif args.target == "gnome":
                 install_gnome()
-        elif args.action == "integrity":
-            pacman_integrity()
         elif args.action == "unlock":
             unlock_pacman()
         elif args.action == "autoremove":
             autoremove()
-    elif cmd == "debug":
-        debug_info()
+        elif args.action == "integrity":
+            pacman_integrity()
+    # elif cmd == "debug":
+    #     debug_info()
     else:
         print("Unknown command")
 
@@ -1647,29 +1649,26 @@ def main():
     global LOG_FILE, NOCONFIRM, DRYRUN, ROOT_MODE
     parser = argparse.ArgumentParser(prog="bredos-config", description=c.APP_NAME)
     parser.add_argument(
-        "--log", action="store_true", help="Log output to bredos-config-<date>.txt"
+        "--log", "-l", action="store_true", help="Log output to bredos-config-<date>.txt"
     )
     parser.add_argument(
         "--dryrun", "--dry-run", "-n", action="store_true", help="Simulate running commands (SAFE)."
     )
     parser.add_argument(
-        "--noconfirm", "--no-confirm", action="store_true", help="Do not ask for confirmations."
+        "--noconfirm", "--no-confirm", "-c", action="store_true", help="Do not ask for confirmations."
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # Admin subcommands
-    fs_parser = subparsers.add_parser("upkeep")
-    fs_sub = fs_parser.add_subparsers(dest="action")
-    fs_sub.add_parser("maintenance")
-    fs_sub.add_parser("check")
-    fs_sub.add_parser("expand")
-    fs_sub.add_parser("journal")
-    fs_sub.add_parser("initcpio")
-    fs_sub.add_parser("migratecpio")
+    dt_parser = subparsers.add_parser("dt")
+    dt_sub = dt_parser.add_argument("cmd", nargs=argparse.REMAINDER)
 
-    # Device tree subcommands
-    dt_parser = fs_sub.add_parser("dt")
-    dt_parser.add_argument("cmd", nargs=argparse.REMAINDER)
+    upkeep_parser = subparsers.add_parser("upkeep")
+    upkeep_sub = upkeep_parser.add_subparsers(dest="action")
+    upkeep_sub.add_parser("maintenance")
+    upkeep_sub.add_parser("check")
+    upkeep_sub.add_parser("expand")
+    upkeep_sub.add_parser("journal")
+    upkeep_sub.add_parser("initcpio")
 
     # Hacks
     hack_parser = subparsers.add_parser("tweaks")
@@ -1678,6 +1677,8 @@ def main():
     hack_sub.add_parser("wol")
     hack_sub.add_parser("gpgme")
     hack_sub.add_parser("pacmansync")
+
+    upkeep_sub.add_parser("migratecpio")
 
     # Packages
     pac_parser = subparsers.add_parser("packages")

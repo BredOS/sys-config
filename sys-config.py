@@ -1588,7 +1588,7 @@ def dp(args):
         dt_manager(cmd=args.cmd)
     elif cmd == "updater":
         updater()
-    if cmd == "upkeep":
+    elif cmd == "upkeep":
         if args.action == "maintenance":
             filesystem_maint()
         elif args.action == "check":
@@ -1600,13 +1600,13 @@ def dp(args):
         elif args.action == "initcpio":
             mkinit()
     elif cmd == "tweaks":
-        if args.target == "pipewire":
+        if args.action == "pipewire":
             hack_pipewire()
-        elif args.target == "wol":
+        elif args.action == "wol":
             hack_wol()
-        elif args.target == "pacmansync":
+        elif args.action == "pacmansync":
             pacman_sync()
-        elif args.target == "gpgme":
+        elif args.action == "gpgme":
             hack_gpgme()
     elif cmd == "migrations":
         if args.action == "cpio":
@@ -1662,6 +1662,8 @@ def main():
     dt_parser = subparsers.add_parser("dt")
     dt_sub = dt_parser.add_argument("cmd", nargs=argparse.REMAINDER)
 
+    updater_parser = subparsers.add_parser("updater")
+
     upkeep_parser = subparsers.add_parser("upkeep")
     upkeep_sub = upkeep_parser.add_subparsers(dest="action")
     upkeep_sub.add_parser("maintenance")
@@ -1672,13 +1674,17 @@ def main():
 
     # Hacks
     hack_parser = subparsers.add_parser("tweaks")
-    hack_sub = hack_parser.add_subparsers(dest="target")
+    hack_sub = hack_parser.add_subparsers(dest="action")
     hack_sub.add_parser("pipewire")
     hack_sub.add_parser("wol")
     hack_sub.add_parser("gpgme")
     hack_sub.add_parser("pacmansync")
 
-    upkeep_sub.add_parser("migratecpio")
+    # Migrations
+    migrations_parser = subparsers.add_parser("migrations")
+    migrations_sub = migrations_parser.add_subparsers(dest="action")
+    migrations_sub.add_parser("cpio")
+
 
     # Packages
     pac_parser = subparsers.add_parser("packages")
@@ -1703,16 +1709,20 @@ def main():
     subparsers.add_parser("info")
 
     # Debug
-    subparsers.add_parser("debug")
+    # subparsers.add_parser("debug")
 
     args = parser.parse_args()
 
     if args.command == "upkeep" and args.action is None:
-        fs_parser.print_help()
+        upkeep_parser.print_help()
         sys.exit(1)
 
-    if args.command == "tweaks" and args.target is None:
+    if args.command == "tweaks" and args.action is None:
         hack_parser.print_help()
+        sys.exit(1)
+
+    if args.command == "migrations" and args.action is None:
+        migrations_parser.print_help()
         sys.exit(1)
 
     # Save command log

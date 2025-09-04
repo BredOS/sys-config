@@ -9,7 +9,7 @@ from bredos import dt
 from bredos import utilities
 from bredos import curseapp as c
 
-c.APP_NAME = "BredOS Configurator"
+c.APP_NAME = "BredOS System Configurator"
 LOG_FILE = None
 DRYRUN = False
 ROOT_MODE = False
@@ -468,7 +468,7 @@ def set_overlays(dtbos: list = []) -> None:
                             efidir + "/dtb/base/rk3588-rock-5bp.dtb",
                         ]
                     )
-                elif normalized_dtb == "rk3588-firefly-itx-3588j.dtb":
+                elif base_dtb_normalized == "rk3588-firefly-itx-3588j.dtb":
                     cmds.append(
                         [
                             "cp",
@@ -1509,8 +1509,6 @@ def upkeep_menu():
             "Check Packages Integrity": pacman_integrity,
             "Clean the system journal": wipe_journal,
             "Regenerate initcpio": mkinit,
-            "Migrate initcpio": migrate_cpio,
-            "Manage Device Trees": dt_manager,
         },
     )
 
@@ -1543,15 +1541,31 @@ def packages_menu() -> None:
     )
 
 
+def migrations_menu() -> None:
+    c.menu(
+        "Migrations",
+        {
+            "Migrate initcpio": migrate_cpio,
+        },
+    )
+
+
+def updater():
+    c.message(["The updater is currently not implemented, sorry."], "Error")
+
+
 def main_menu():
     c.init()
     c.menu(
         c.APP_NAME,
         {
+            "Device Tree Manager": dt_manager,
+            "Update the system": updater,
             "System Upkeep": upkeep_menu,
             "System Tweaks": tweaks_menu,
+            "Migrations": migrations_menu,
             "Packages": packages_menu,
-            "Debug": debug_info,
+            # "Debug": debug_info,
         },
         "Exit",
     )
@@ -1636,16 +1650,10 @@ def main():
         "--log", action="store_true", help="Log output to bredos-config-<date>.txt"
     )
     parser.add_argument(
-        "--dryrun", action="store_true", help="Simulate running commands (SAFE)."
+        "--dryrun", "--dry-run", "-n", action="store_true", help="Simulate running commands (SAFE)."
     )
     parser.add_argument(
-        "--dry-run", action="store_true", help="Simulate running commands (SAFE)."
-    )
-    parser.add_argument(
-        "--noconfirm", action="store_true", help="Do not ask for confirmations."
-    )
-    parser.add_argument(
-        "--no-confirm", action="store_true", help="Do not ask for confirmations."
+        "--noconfirm", "--no-confirm", action="store_true", help="Do not ask for confirmations."
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -1711,10 +1719,10 @@ def main():
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         LOG_FILE = f"bredos-config-{timestamp}.txt"
 
-    if args.noconfirm or args.no_confirm:
+    if args.noconfirm:
         c.NOCONFIRM = True
 
-    if args.dryrun or args.dry_run:
+    if args.dryrun:
         DRYRUN = True
         c.DRYRUN = True
 

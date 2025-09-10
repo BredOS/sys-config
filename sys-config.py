@@ -14,6 +14,23 @@ LOG_FILE = None
 DRYRUN = False
 ROOT_MODE = False
 
+# ---------- CACHE FUNCTIONS ------------
+
+CACHE_FILE = f"/tmp/config_cache.{os.geteuid()}.json"
+
+
+def load_cache() -> dict:
+    try:
+        with open(CACHE_FILE, "r") as f:
+            return json.load(f)
+    except Exception as err:
+        return {}
+
+
+def write_cache() -> None:
+    pass
+
+
 # --------------- RUNNER ----------------
 
 elevator = utilities.Elevator()
@@ -1649,13 +1666,24 @@ def main():
     global LOG_FILE, NOCONFIRM, DRYRUN, ROOT_MODE
     parser = argparse.ArgumentParser(prog="bredos-config", description=c.APP_NAME)
     parser.add_argument(
-        "--log", "-l", action="store_true", help="Log output to bredos-config-<date>.txt"
+        "--log",
+        "-l",
+        action="store_true",
+        help="Log output to bredos-config-<date>.txt",
     )
     parser.add_argument(
-        "--dryrun", "--dry-run", "-n", action="store_true", help="Simulate running commands (SAFE)."
+        "--dryrun",
+        "--dry-run",
+        "-n",
+        action="store_true",
+        help="Simulate running commands (SAFE).",
     )
     parser.add_argument(
-        "--noconfirm", "--no-confirm", "-c", action="store_true", help="Do not ask for confirmations."
+        "--noconfirm",
+        "--no-confirm",
+        "-c",
+        action="store_true",
+        help="Do not ask for confirmations.",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -1684,7 +1712,6 @@ def main():
     migrations_parser = subparsers.add_parser("migrations")
     migrations_sub = migrations_parser.add_subparsers(dest="action")
     migrations_sub.add_parser("cpio")
-
 
     # Packages
     pac_parser = subparsers.add_parser("packages")

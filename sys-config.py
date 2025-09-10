@@ -27,8 +27,14 @@ def load_cache() -> dict:
         return {}
 
 
-def write_cache() -> None:
-    pass
+def write_cache(payload: dict) -> None:
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, "w") as f:
+            json.dump(payload, f)
+        os.rename(tmp, CACHE_FILE)
+    except:
+        pass
 
 
 # --------------- RUNNER ----------------

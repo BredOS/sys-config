@@ -1337,7 +1337,6 @@ def install_development() -> None:
         + " kmod"
         + " bc"
         + " uboot-tools"
-        + " vboot-utils"
         + " bredos-tools",
     ]
     if c.confirm(
@@ -1355,7 +1354,6 @@ def install_development() -> None:
             " - kmod",
             " - bc",
             " - uboot-tools",
-            " - vboot-utils",
             " - bredos-tools",
             "",
             "Are you sure you wish to continue?",

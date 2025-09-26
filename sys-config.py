@@ -14,8 +14,6 @@ LOG_FILE = None
 DRYRUN = False
 ROOT_MODE = False
 
-if "TERM" not in os.environ or not os.environ["TERM"]:
-    os.environ["TERM"] = "linux"
 
 # ---------- CACHE FUNCTIONS ------------
 

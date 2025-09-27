@@ -13,7 +13,7 @@ depends=('python' 'dtc' 'python-bredos-common>=1.7.0')
 optdepends=('u-boot-update: Automatic U-Boot Updates')
 
 source=('sys-config.py' 'bredos-sysconfig.desktop')
-sha256sums=('afbd372fb092a02a9355fe70f3c819ab0607805704118b86d8128be5e6ed57b2'
+sha256sums=('0fa756e61848c66676fec483b6fddbc33daf84fb9e3f18e595b5afd509b9f684'
             '3f43196e365720274e2a7f3273a921cc1bd669f4c122e8d6eb63c2dfc98dabe9')
 
 package() {

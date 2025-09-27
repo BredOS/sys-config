@@ -5,6 +5,11 @@ import argparse, subprocess, signal
 from pathlib import Path
 from datetime import datetime
 
+# If running on the dumbest terminal on earth, fix env and reexec.
+if "TERM" in os.environ and os.environ["TERM"] == "xterm-kitty":
+    os.environ["TERM"] = "alacritty"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
 from bredos import dt
 from bredos import utilities
 from bredos import curseapp as c

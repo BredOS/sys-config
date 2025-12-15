@@ -27,7 +27,7 @@ CACHE_FILE = f"/tmp/config_cache.{os.geteuid()}.json"
 
 def load_cache() -> dict:
     try:
-        with open(CACHE_FILE, "r") as f:
+        with open(CACHE_FILE) as f:
             return json.load(f)
     except Exception as err:
         return {}
@@ -1526,6 +1526,92 @@ def autoremove() -> None:
         runner(cmd, True, "Remove Unused Packages")
 
 
+def repos_stable() -> None:
+    if c.confirm(
+        [
+            "Stable repositories receive a minimum amount of testing",
+            "to ensure system stability.",
+            "",
+            "If you want to make this system not break that often with updates,",
+            "you're adviced to switch to them. This change can always be reverted.",
+            "",
+            "Switch to stable repos?",
+        ],
+        "Switch to stable repositories",
+    ):
+        # Fix stable-mirrorlist in filesystem
+        elevated_file_write(
+            "/etc/pacman.d/stable-mirrorlist",
+            "## Stable Mirrorlist\nServer = https://mirror.bredos.org/repo/$repo/$arch\n",
+        )
+
+        # Read existing pacman.conf
+        with open("/etc/pacman.conf") as f:  # Assume it's readable
+            lines = f.readlines()
+            modified = False
+
+            for i, line in enumerate(lines):
+                clean_line = line.strip()
+
+                if clean_line in ["[core]", "[extra]"]:
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        # Only replace if it is currently pointing to the standard list
+                        if next_line == "Include = /etc/pacman.d/mirrorlist":
+                            lines[i + 1] = "Include = /etc/pacman.d/stable-mirrorlist\n"
+                            modified = True
+
+        # Write back modified pacman.conf
+        if modified:
+            elevated_file_write("/etc/pacman.conf", "".join(lines))
+            pass
+        else:
+            pass
+
+
+def repos_latest() -> None:
+    if c.confirm(
+        [
+            "Latest repositories pull from upsteam Arch Linux ARM",
+            "and are outside of testing.",
+            "",
+            "You're likely to see updates causing breakage.",
+            "You'll receive the latest and greatest as fast as possible.",
+            "",
+            "Switch to latest repos?",
+        ],
+        "Switch to latest repositories",
+    ):
+        # Fix stable-mirrorlist in filesystem
+        elevated_file_write(
+            "/etc/pacman.d/stable-mirrorlist",
+            "## Stable Mirrorlist\nServer = https://mirror.bredos.org/repo/$repo/$arch\n",
+        )
+
+        # Read existing pacman.conf
+        with open("/etc/pacman.conf") as f:  # Assume it's readable
+            lines = f.readlines()
+            modified = False
+
+            for i, line in enumerate(lines):
+                clean_line = line.strip()
+
+                if clean_line in ["[core]", "[extra]"]:
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        # Only replace if it is currently pointing to the standard list
+                        if next_line == "Include = /etc/pacman.d/stable-mirrorlist":
+                            lines[i + 1] = "Include = /etc/pacman.d/mirrorlist\n"
+                            modified = True
+
+        # Write back modified pacman.conf
+        if modified:
+            elevated_file_write("/etc/pacman.conf", "".join(lines))
+            pass
+        else:
+            pass
+
+
 def upkeep_menu():
     c.menu(
         "System Upkeep",
@@ -1556,6 +1642,7 @@ def packages_menu() -> None:
     c.menu(
         "Packages",
         {
+            "Switch repositories": repos_menu,
             "Install Recommended Desktop Packages": install_recommends,
             "Install Docker": install_docker,
             "Install Steam": install_steam,
@@ -1573,6 +1660,16 @@ def migrations_menu() -> None:
         "Migrations",
         {
             "Migrate initcpio": migrate_cpio,
+        },
+    )
+
+
+def repos_menu() -> None:
+    c.menu(
+        "Repositories",
+        {
+            "Switch to the stable repositories": repos_stable,
+            "Switch to the latest repositories": repos_latest,
         },
     )
 
@@ -1656,6 +1753,11 @@ def dp(args):
             autoremove()
         elif args.action == "integrity":
             pacman_integrity()
+    elif cmd == "repos":
+        if args.action == "stable":
+            repos_stable()
+        elif args.action == "latest":
+            repos_latest()
     # elif cmd == "debug":
     #     debug_info()
     else:
@@ -1744,6 +1846,12 @@ def main():
 
     # Info
     subparsers.add_parser("info")
+
+    # Repos
+    repos_parser = subparsers.add_parser("repos")
+    repos_sub = repos_parser.add_subparsers(dest="action", required=True)
+    repos_sub.add_parser("stable")
+    repos_sub.add_parser("latest")
 
     # Debug
     # subparsers.add_parser("debug")
